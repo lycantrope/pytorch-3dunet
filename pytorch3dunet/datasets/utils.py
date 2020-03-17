@@ -126,6 +126,59 @@ class SliceBuilder:
         assert patch_shape[1] >= 64 and patch_shape[2] >= 64, 'Height and Width must be greater or equal 64'
         assert patch_shape[0] >= 16, 'Depth must be greater or equal 16'
 
+class PixelWiseWeightedSliceBuilder(SliceBuilder):
+    """
+    Draw patches centered around random points. The probability of a point being chosen as the center is equal to its weight.
+    """
+    def __init__(self, raw_datasets, label_datasets, weight_dataset, patch_shape, stride_shape, **kwargs):
+        #assert self.weight_dataset is not None, "Weight dataset must be nonempty"
+        
+        assert raw_datasets[0].ndim == 3, "Only 3D datasets supported for this slice builder."
+
+        patch_shape = tuple(patch_shape)
+
+        skip_shape_check = kwargs.get('skip_shape_check', False)
+        if not skip_shape_check:
+            self._check_patch_shape(patch_shape)
+
+        num_patches = int(kwargs.get('num_patches', None))
+
+        self._raw_slices = self._build_slices_weighted(weight_dataset[0], num_patches, patch_shape, weight_dataset[0].shape)
+        self._label_slices = self._raw_slices
+        self._weight_slices = self._raw_slices
+    
+    @staticmethod
+    def _index_to_coordinate(index, dataset_shape):
+        coord = np.zeros_like(dataset_shape)
+        l = len(dataset_shape)
+        for i in range(l):
+            coord[l-1-i] = index % dataset_shape[l-1-i]
+            index = index // dataset_shape[l-1-i]
+        return coord
+
+    @staticmethod
+    def _center_to_slice(center, patch_shape, dataset_shape):
+        # get corner of patch
+        top_left = np.array(center) - np.array(patch_shape) // 2
+        # ensure patch doesn't go out of bounds of the data
+        slice_idx = []
+        for i in range(len(top_left)):
+            if top_left[i] < 0:
+                slice_idx.append(slice(0, patch_shape[i]))
+                continue
+            if top_left[i] + patch_shape[i] >= dataset_shape[i]:
+                slice_idx.append(slice(dataset_shape[i] - patch_shape[i], dataset_shape[i]))
+                continue
+            slice_idx.append(slice(top_left[i], top_left[i] + patch_shape[i]))
+        return tuple(slice_idx)
+
+    @staticmethod
+    def _build_slices_weighted(weight_dataset, num_patches, patch_shape, dataset_shape):
+        flat_weights = np.ndarray.flatten(weight_dataset)
+        flat_weights = flat_weights / np.sum(flat_weights)
+        centers = np.random.choice(range(len(flat_weights)), num_patches, p=flat_weights)
+        return list(map(lambda i: PixelWiseWeightedSliceBuilder._center_to_slice(PixelWiseWeightedSliceBuilder._index_to_coordinate(i, dataset_shape), patch_shape, dataset_shape), centers))
+
 
 class FilterSliceBuilder(SliceBuilder):
     """

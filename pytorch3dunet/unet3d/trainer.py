@@ -208,7 +208,7 @@ class UNet3DTrainer:
 
                 # compute eval criterion
                 if not self.skip_train_validation:
-                    eval_score = self.eval_criterion(output, target)
+                    eval_score = self._eval_criterion(output, target, weight)
                     train_eval_scores.update(eval_score.item(), self._batch_size(input))
 
                 # log stats, params and images
@@ -262,7 +262,7 @@ class UNet3DTrainer:
                 if hasattr(self.model, 'final_activation') and self.model.final_activation is not None:
                     output = self.model.final_activation(output)
 
-                eval_score = self.eval_criterion(output, target)
+                eval_score = self._eval_criterion(output, target, weight)
                 val_scores.update(eval_score.item(), self._batch_size(input))
 
                 if self.validate_iters is not None and self.validate_iters <= i:
@@ -287,6 +287,13 @@ class UNet3DTrainer:
         else:
             input, target, weight = t
         return input, target, weight
+
+    def _eval_criterion(self, output, target, weight=None):
+        if weight is None:
+            eval_score = self.eval_criterion(output, target)
+        else:
+            eval_score = self.eval_criterion(output, target, weight)
+        return eval_score
 
     def _forward_pass(self, input, target, weight=None):
         # forward pass

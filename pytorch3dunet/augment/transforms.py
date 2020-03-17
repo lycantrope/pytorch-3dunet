@@ -113,11 +113,16 @@ class RandomContrast:
         self.alpha = alpha
         self.mean = mean
         self.execution_probability = execution_probability
+        self.use_data_mean = kwargs.get('use_data_mean', False)
 
     def __call__(self, m):
         if self.random_state.uniform() < self.execution_probability:
+            if self.use_data_mean:
+                mu = np.mean(m)
+            else:
+                mu = self.mean
             alpha = self.random_state.uniform(self.alpha[0], self.alpha[1])
-            result = self.mean + alpha * (m - self.mean)
+            result = mu + alpha * (m - mu)
             return np.clip(result, -1, 1)
 
         return m
