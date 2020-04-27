@@ -77,17 +77,14 @@ class AbstractHDF5Dataset(ConfigDataset):
 
         self.transformer = transforms.get_transformer(transformer_config, min_value=min_value, max_value=max_value,
                                                       mean=mean, std=std)
-        self.raw_transform = self.transformer.raw_transform()
 
         if phase != 'test':
             # create label/weight transform only in train/val phase
-            self.label_transform = self.transformer.label_transform()
             self.labels = self.fetch_datasets(input_file, label_internal_path)
 
             if weight_internal_path is not None:
                 # look for the weight map in the raw file
                 self.weight_maps = self.fetch_datasets(input_file, weight_internal_path)
-                self.weight_transform = self.transformer.weight_transform()
             else:
                 self.weight_maps = None
 
@@ -136,8 +133,12 @@ class AbstractHDF5Dataset(ConfigDataset):
 
         # get the slice for a given index 'idx'
         raw_idx = self.raw_slices[idx]
+
+        # modify seed of transformer, to ensure different transforms in different epochs
+        self.transformer.refresh_seed()
+        raw_transform = self.transformer.raw_transform()
         # get the raw data patch for a given slice
-        raw_patch_transformed = self._transform_patches(self.raws, raw_idx, self.raw_transform)
+        raw_patch_transformed = self._transform_patches(self.raws, raw_idx, raw_transform)
 
         if self.phase == 'test':
             # discard the channel dimension in the slices: predictor requires only the spatial dimensions of the volume
@@ -147,11 +148,13 @@ class AbstractHDF5Dataset(ConfigDataset):
         else:
             # get the slice for a given index 'idx'
             label_idx = self.label_slices[idx]
-            label_patch_transformed = self._transform_patches(self.labels, label_idx, self.label_transform)
+            label_transform = self.transformer.label_transform()
+            label_patch_transformed = self._transform_patches(self.labels, label_idx, label_transform)
             if self.weight_maps is not None:
                 weight_idx = self.weight_slices[idx]
+                weight_transform = self.transformer.weight_transform()
                 # return the transformed weight map for a given patch together with raw and label data
-                weight_patch_transformed = self._transform_patches(self.weight_maps, weight_idx, self.weight_transform)
+                weight_patch_transformed = self._transform_patches(self.weight_maps, weight_idx, weight_transform)
                 return raw_patch_transformed, label_patch_transformed, weight_patch_transformed
             # return the transformed raw and label patches
             return raw_patch_transformed, label_patch_transformed

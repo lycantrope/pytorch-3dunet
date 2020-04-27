@@ -2,6 +2,7 @@ import os
 
 import torch
 import torch.nn as nn
+import h5py
 from tensorboardX import SummaryWriter
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 
@@ -46,7 +47,7 @@ class UNet3DTrainer:
     def __init__(self, model, optimizer, lr_scheduler, loss_criterion,
                  eval_criterion, device, loaders, checkpoint_dir,
                  max_num_epochs=100, max_num_iterations=1e5,
-                 validate_after_iters=100, log_after_iters=100,
+                 validate_after_iters=100, checkpoint_after_iters=500, log_after_iters=100,
                  validate_iters=None, num_iterations=1, num_epoch=0,
                  eval_score_higher_is_better=True, best_eval_score=None,
                  tensorboard_formatter=None, skip_train_validation=False):
@@ -62,6 +63,7 @@ class UNet3DTrainer:
         self.max_num_epochs = max_num_epochs
         self.max_num_iterations = max_num_iterations
         self.validate_after_iters = validate_after_iters
+        self.checkpoint_after_iters = checkpoint_after_iters
         self.log_after_iters = log_after_iters
         self.validate_iters = validate_iters
         self.eval_score_higher_is_better = eval_score_higher_is_better
@@ -199,10 +201,22 @@ class UNet3DTrainer:
 
                 # save checkpoint
                 self._save_checkpoint(is_best)
+                if self.num_iterations % self.checkpoint_after_iters == 0:
+                    self._save_checkpoint(is_best, iter=self.num_iterations)
 
             if self.num_iterations % self.log_after_iters == 0:
                 # if model contains final_activation layer for normalizing logits apply it, otherwise both
                 # the evaluation metric as well as images in tensorboard will be incorrectly computed
+                with h5py.File("/home/aaatanas/h5/iter_" + str(self.num_iterations) + ".h5", "w") as f:
+                    r = f.create_dataset("raw", t[0].shape)
+                    l = f.create_dataset("label", t[0].shape)
+                    w = f.create_dataset("weight", t[0].shape)
+                    for i in range(input.shape[0]):
+                        r[i] = t[0][i]
+                        l[i] = t[1][i]
+                        w[i] = t[2][i]
+
+
                 if hasattr(self.model, 'final_activation') and self.model.final_activation is not None:
                     output = self.model.final_activation(output)
 
@@ -319,7 +333,7 @@ class UNet3DTrainer:
 
         return is_best
 
-    def _save_checkpoint(self, is_best):
+    def _save_checkpoint(self, is_best, iter=None):
         # remove `module` prefix from layer names when using `nn.DataParallel`
         # see: https://discuss.pytorch.org/t/solved-keyerror-unexpected-key-module-encoder-embedding-weight-in-state-dict/1686/20
         if isinstance(self.model, nn.DataParallel):
@@ -341,7 +355,7 @@ class UNet3DTrainer:
             'log_after_iters': self.log_after_iters,
             'validate_iters': self.validate_iters
         }, is_best, checkpoint_dir=self.checkpoint_dir,
-            logger=logger)
+            logger=logger, iter=iter)
 
     def _log_lr(self):
         lr = self.optimizer.param_groups[0]['lr']

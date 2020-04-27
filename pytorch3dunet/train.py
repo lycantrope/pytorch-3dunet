@@ -41,6 +41,7 @@ def _create_trainer(config, model, optimizer, lr_scheduler, loss_criterion, eval
                                              max_num_iterations=trainer_config['iters'],
                                              validate_after_iters=trainer_config['validate_after_iters'],
                                              log_after_iters=trainer_config['log_after_iters'],
+                                             checkpoint_after_iters=trainer_config['checkpoint_after_iters'],
                                              eval_score_higher_is_better=trainer_config['eval_score_higher_is_better'],
                                              tensorboard_formatter=tensorboard_formatter,
                                              skip_train_validation=skip_train_validation)
@@ -52,6 +53,7 @@ def _create_trainer(config, model, optimizer, lr_scheduler, loss_criterion, eval
                              max_num_iterations=trainer_config['iters'],
                              validate_after_iters=trainer_config['validate_after_iters'],
                              log_after_iters=trainer_config['log_after_iters'],
+                             checkpoint_after_iters=trainer_config['checkpoint_after_iters'],
                              eval_score_higher_is_better=trainer_config['eval_score_higher_is_better'],
                              tensorboard_formatter=tensorboard_formatter,
                              skip_train_validation=skip_train_validation)
@@ -62,7 +64,13 @@ def _create_optimizer(config, model):
     optimizer_config = config['optimizer']
     learning_rate = optimizer_config['learning_rate']
     weight_decay = optimizer_config['weight_decay']
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+    if optimizer_config['algorithm'] == 'Adam':
+        optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+    elif optimizer_config['algorithm'] == 'SGD':
+        momentum = optimizer_config['momentum']
+        optimizer = optim.SGD(model.parameters(), lr=learning_rate, weight_decay=weight_decay, momentum=momentum)
+    else:
+        raise NotImplementedError("ERROR: Optimizer "+optimizer_config['algorithm'] +" not implemented.")
     return optimizer
 
 

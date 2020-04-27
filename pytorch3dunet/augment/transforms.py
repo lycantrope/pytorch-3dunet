@@ -1,15 +1,17 @@
 import importlib
 
+import math
 import numpy as np
 import torch
-from scipy.ndimage import rotate, map_coordinates, gaussian_filter
+import SimpleITK as sitk
+from scipy.ndimage import rotate, map_coordinates, gaussian_filter, affine_transform
 from scipy.ndimage.filters import convolve
 from skimage.filters import gaussian
 from skimage.segmentation import find_boundaries
 from torchvision.transforms import Compose
 
 # WARN: use fixed random state for reproducibility; if you want to randomize on each run seed with `time.time()` e.g.
-GLOBAL_RANDOM_STATE = np.random.RandomState(47)
+#GLOBAL_RANDOM_STATE = np.random.RandomState(47)
 
 
 class RandomFlip:
@@ -60,6 +62,7 @@ class RandomRotate90:
 
         # pick number of rotations at random
         k = self.random_state.randint(0, 4)
+
         # rotate k times around a given plane
         if m.ndim == 3:
             m = np.rot90(m, k, self.axis)
@@ -76,30 +79,112 @@ class RandomRotate:
     Rotation axis is picked at random from the list of provided axes.
     """
 
-    def __init__(self, random_state, angle_spectrum=30, axes=None, mode='reflect', order=0, **kwargs):
+    def __init__(self, random_state, angle_spectrum=30, axes=None, mode='reflect', order=0, cval=None, execution_probability=0.1, **kwargs):
         if axes is None:
             axes = [(1, 0), (2, 1), (2, 0)]
         else:
             assert isinstance(axes, list) and len(axes) > 0
 
+        self.execution_probability = execution_probability
         self.random_state = random_state
         self.angle_spectrum = angle_spectrum
         self.axes = axes
         self.mode = mode
         self.order = order
+        self.cval = cval
 
     def __call__(self, m):
-        axis = self.axes[self.random_state.randint(len(self.axes))]
-        angle = self.random_state.randint(-self.angle_spectrum, self.angle_spectrum)
-
-        if m.ndim == 3:
-            m = rotate(m, angle, axes=axis, reshape=False, order=self.order, mode=self.mode, cval=-1)
-        else:
-            channels = [rotate(m[c], angle, axes=axis, reshape=False, order=self.order, mode=self.mode, cval=-1) for c
-                        in range(m.shape[0])]
-            m = np.stack(channels, axis=0)
+        if self.random_state.uniform() < self.execution_probability:
+            if self.cval is None:
+                cval = np.median(m)
+            else:
+                cval = self.cval
+            axis = self.axes[self.random_state.randint(len(self.axes))]
+            angle = self.random_state.randint(-self.angle_spectrum, self.angle_spectrum)
+            if m.ndim == 3:
+                m = rotate(m, angle, axes=axis, reshape=False, order=self.order, mode=self.mode, cval=cval)
+            else:
+                channels = [rotate(m[c], angle, axes=axis, reshape=False, order=self.order, mode=self.mode, cval=cval) for c
+                            in range(m.shape[0])]
+                m = np.stack(channels, axis=0)
 
         return m
+
+
+# TODO: class RandomTranslate:
+
+# TODO: Random scaling causes problems
+class RandomAffineTransform:
+    """ Implements a random affine transform. Includes shear, scaling, rotation, and (TODO) translation. 
+        Order is shear, then scale, then rotation. Only rotates in xy plane."""
+    def __init__(self, random_state, sigma_xy_shear=0.1, sigma_zstack_shear=0.5, sigma_zwarp_shear=0, sigma_scale_xy=0.1, sigma_scale_z=0, angle_spectrum=30,
+            shear_exec_prob=0.2, rotate_exec_prob=0.2, scale_exec_prob=0.2, translate_exec_prob=0.4, translate_x=100, translate_y=20, translate_z=5, mode='constant', order=1, cval=None, **kwargs):
+        self.random_state = random_state
+        self.sigma_xy_shear = sigma_xy_shear
+        self.sigma_zstack_shear = sigma_zstack_shear
+        self.sigma_zwarp_shear = sigma_zwarp_shear
+        self.sigma_scale_xy = sigma_scale_xy
+        self.sigma_scale_z = sigma_scale_z
+        self.angle_spectrum = angle_spectrum
+        self.shear_exec_prob = shear_exec_prob
+        self.rotate_exec_prob = rotate_exec_prob
+        self.scale_exec_prob = scale_exec_prob
+        self.order = order
+        self.mode = mode
+        self.cval = cval
+        self.translate_x = translate_x
+        self.translate_y = translate_y
+        self.translate_z = translate_z
+        self.translate_exec_prob = translate_exec_prob
+
+    def __call__(self, m):
+        assert m.ndim == 3
+        mat_shear = np.identity(3)
+        if self.random_state.uniform() < self.shear_exec_prob:
+            if self.sigma_xy_shear > 0:
+                mat_shear[2,1] = self.random_state.normal(0,self.sigma_xy_shear)
+                mat_shear[1,2] = self.random_state.normal(0,self.sigma_xy_shear)
+            if self.sigma_zstack_shear > 0:
+                mat_shear[2,0] = self.random_state.normal(0,self.sigma_zstack_shear)
+                mat_shear[1,0] = self.random_state.normal(0,self.sigma_zstack_shear)
+            if self.sigma_zwarp_shear > 0:
+                mat_shear[0,1] = self.random_state.normal(0,self.sigma_zwarp_shear)
+                mat_shear[0,2] = self.random_state.normal(0,self.sigma_zwarp_shear)
+
+        mat_scale = np.identity(3)
+
+        if self.random_state.uniform() < self.scale_exec_prob:
+            if self.sigma_scale_xy > 0:
+                mat_scale[1,1] = self.random_state.normal(1,self.sigma_scale_xy)
+                mat_scale[2,2] = self.random_state.normal(1,self.sigma_scale_xy)
+            if self.sigma_scale_z > 0:
+                mat_scale[0,0] = self.random_state.normal(1,self.sigma_scale_z)
+        
+        mat_rotate = np.identity(3)
+        if self.random_state.uniform() < self.rotate_exec_prob:
+            theta = self.random_state.randint(-self.angle_spectrum, self.angle_spectrum)
+            mat_rotate[1,1] = math.cos(math.radians(theta))
+            mat_rotate[1,2] = -math.sin(math.radians(theta))
+            mat_rotate[2,1] = math.sin(math.radians(theta))
+            mat_rotate[2,2] = math.cos(math.radians(theta))
+
+        mat = np.dot(np.dot(mat_rotate, mat_scale), mat_shear)
+        if self.cval is None:
+            cval = np.median(m)
+        else:
+            cval = self.cval
+        
+        offset = [0,0,0]
+        if self.random_state.uniform() < self.translate_exec_prob:
+            offset[0] = self.random_state.randint(-self.translate_z, self.translate_z)
+            offset[1] = self.random_state.randint(-self.translate_y, self.translate_y)
+            offset[2] = self.random_state.randint(-self.translate_x, self.translate_x)
+
+        m = affine_transform(m, mat, offset=offset, mode=self.mode, order=self.order, cval=cval)
+
+        return m
+
+
 
 
 class RandomContrast:
@@ -127,6 +212,46 @@ class RandomContrast:
 
         return m
 
+class BSplineDeformation:
+    """ Apply B-Spline transformations to 3D patches. """
+    def __init__(self, random_state, order=3, execution_probability=0.2, cval=None, spacing=100, sigma=20, interpolator='linear', **kwargs):
+        self.random_state = random_state
+        self.order = order
+        self.execution_probability = execution_probability
+        self.cval = cval
+        self.spacing = spacing
+        self.sigma = sigma
+        if interpolator == 'bspline':
+            self.interpolator = sitk.sitkBSpline
+        elif interpolator == 'linear':
+            self.interpolator = sitk.sitkLinear
+        elif intrpolator == 'nn':
+            self.interpolator = sitk.sitkNearestNeighbor
+        else:
+            raise NotImplementedError("ERROR: interpolator " + str(interpolator) + " not implemented.")
+
+
+    def __call__(self, m):
+        assert m.ndim == 3
+        if self.random_state.uniform() < self.execution_probability:
+            if self.cval is None:
+                cval = np.median(m)
+            else:
+                cval = self.cval
+            bsp_grid_size = [math.floor(m.shape[2]/self.spacing), math.floor(m.shape[1]/self.spacing)]
+            imgs = [sitk.GetImageFromArray(m[i], isVector=False) for i in range(m.shape[0])]
+            t = sitk.BSplineTransformInitializer(imgs[0], bsp_grid_size, order=self.order)
+            params = np.asarray(t.GetParameters(), dtype=np.float64)
+            params = params + self.random_state.randn(params.shape[0]) * self.sigma
+            t.SetParameters(tuple(params))
+            resampler = sitk.ResampleImageFilter()
+            resampler.SetReferenceImage(imgs[0])
+            resampler.SetInterpolator(self.interpolator)
+            resampler.SetDefaultPixelValue(cval)
+            resampler.SetTransform(t)
+            result = np.array([sitk.GetArrayFromImage(resampler.Execute(img)) for img in imgs])
+            return result
+        return m
 
 # it's relatively slow, i.e. ~1s per patch of size 64x200x200, so use multiple workers in the DataLoader
 # remember to use spline_order=0 when transforming the labels
@@ -659,7 +784,7 @@ class Transformer:
     def __init__(self, phase_config, base_config):
         self.phase_config = phase_config
         self.config_base = base_config
-        self.seed = GLOBAL_RANDOM_STATE.randint(10000000)
+        self.seed = np.random.RandomState().randint(10000000)
 
     def raw_transform(self):
         return self._create_transform('raw')
@@ -669,6 +794,9 @@ class Transformer:
 
     def weight_transform(self):
         return self._create_transform('weight')
+
+    def refresh_seed(self):
+        self.seed = np.random.RandomState().randint(10000000)
 
     @staticmethod
     def _transformer_class(class_name):

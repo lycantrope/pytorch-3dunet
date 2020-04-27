@@ -17,7 +17,7 @@ plt.ioff()
 plt.switch_backend('agg')
 
 
-def save_checkpoint(state, is_best, checkpoint_dir, logger=None):
+def save_checkpoint(state, is_best, checkpoint_dir, logger=None, iter=None):
     """Saves model and training parameters at '{checkpoint_dir}/last_checkpoint.pytorch'.
     If is_best==True saves '{checkpoint_dir}/best_checkpoint.pytorch' as well.
 
@@ -44,7 +44,10 @@ def save_checkpoint(state, is_best, checkpoint_dir, logger=None):
         best_file_path = os.path.join(checkpoint_dir, 'best_checkpoint.pytorch')
         log_info(f"Saving best checkpoint to '{best_file_path}'")
         shutil.copyfile(last_file_path, best_file_path)
-
+    if iter is not None:
+        iter_file_path = os.path.join(checkpoint_dir, str(iter) + '_checkpoint.pytorch')
+        log_info(f"Saving best checkpoint to '{iter_file_path}'")
+        shutil.copyfile(last_file_path, iter_file_path)
 
 def load_checkpoint(checkpoint_path, model, optimizer=None):
     """Loads model and training parameters from a given checkpoint_path
