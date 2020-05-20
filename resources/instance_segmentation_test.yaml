@@ -37,7 +37,7 @@ loaders:
     # paths to the test datasets; if a given path is a directory all H5 files ('*.h5', '*.hdf', '*.hdf5', '*.hd5')
     # inside this this directory will be included as well (non-recursively)
     file_paths:
-      - '/home/aaatanas/Dropbox (MIT)/Flavell Lab/Image Registration/unet_data/hdf5_test/'
+      - '/home/aaatanas/imaging/OH15500/OH15500_2_first_output_new/HDF5/'
 
     # SliceBuilder configuration, i.e. how to iterate over the input volume patch-by-patch
     slice_builder:
@@ -46,7 +46,7 @@ loaders:
       # train patch size given to the network (adapt to fit in your GPU mem, generally the bigger patch the better)
       patch_shape: [44, 208, 384]
       # train stride between patches
-      stride_shape: [4, 32, 64]
+      stride_shape: [32, 150, 250]
 
     transformer:
         raw:

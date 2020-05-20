@@ -111,9 +111,6 @@ class RandomRotate:
         return m
 
 
-# TODO: class RandomTranslate:
-
-# TODO: Random scaling causes problems
 class RandomAffineTransform:
     """ Implements a random affine transform. Includes shear, scaling, rotation, and (TODO) translation. 
         Order is shear, then scale, then rotation. Only rotates in xy plane."""
