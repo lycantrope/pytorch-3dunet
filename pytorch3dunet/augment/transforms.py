@@ -52,12 +52,16 @@ class RandomRotate90:
     IMPORTANT: assumes DHW axis order (that's why rotation is performed across (1,2) axis)
     """
 
-    def __init__(self, random_state, **kwargs):
+    def __init__(self, random_state, axes=[(1,2)], **kwargs):
         self.random_state = random_state
-        # always rotate around z-axis
-        self.axis = (1, 2)
+        if axes is None:
+            axes = [(1, 0), (2, 1), (2, 0)]
+        else:
+            assert isinstance(axes, list) and len(axes) > 0
+        self.axes = axes
 
     def __call__(self, m):
+        axis = self.axes[self.random_state.randint(len(self.axes))]
         assert m.ndim in [3, 4], 'Supports only 3D (DxHxW) or 4D (CxDxHxW) images'
 
         # pick number of rotations at random
@@ -65,9 +69,9 @@ class RandomRotate90:
 
         # rotate k times around a given plane
         if m.ndim == 3:
-            m = np.rot90(m, k, self.axis)
+            m = np.rot90(m, k, axis)
         else:
-            channels = [np.rot90(m[c], k, self.axis) for c in range(m.shape[0])]
+            channels = [np.rot90(m[c], k, axis) for c in range(m.shape[0])]
             m = np.stack(channels, axis=0)
 
         return m
@@ -81,7 +85,7 @@ class RandomRotate:
 
     def __init__(self, random_state, angle_spectrum=30, axes=None, mode='reflect', order=0, cval=None, execution_probability=0.1, **kwargs):
         if axes is None:
-            axes = [(1, 0), (2, 1), (2, 0)]
+            axes = [(0,1), (1,2), (0,2)]
         else:
             assert isinstance(axes, list) and len(axes) > 0
 
@@ -114,8 +118,12 @@ class RandomRotate:
 class RandomAffineTransform:
     """ Implements a random affine transform. Includes shear, scaling, rotation, and (TODO) translation. 
         Order is shear, then scale, then rotation. Only rotates in xy plane."""
-    def __init__(self, random_state, sigma_xy_shear=0.1, sigma_zstack_shear=0.5, sigma_zwarp_shear=0, sigma_scale_xy=0.1, sigma_scale_z=0, angle_spectrum=30,
+    def __init__(self, random_state, sigma_xy_shear=0.1, sigma_zstack_shear=0.5, sigma_zwarp_shear=0, sigma_scale_xy=0.1, sigma_scale_z=0, angle_spectrum=30, axes=[(2,1)],
             shear_exec_prob=0.2, rotate_exec_prob=0.2, scale_exec_prob=0.2, translate_exec_prob=0.4, translate_x=100, translate_y=20, translate_z=5, mode='constant', order=1, cval=None, **kwargs):
+        if axes is None:
+            axes = [(1, 0), (2, 1), (2, 0)]
+        else:
+            assert isinstance(axes, list) and len(axes) > 0
         self.random_state = random_state
         self.sigma_xy_shear = sigma_xy_shear
         self.sigma_zstack_shear = sigma_zstack_shear
@@ -133,6 +141,7 @@ class RandomAffineTransform:
         self.translate_y = translate_y
         self.translate_z = translate_z
         self.translate_exec_prob = translate_exec_prob
+        self.axes = axes
 
     def __call__(self, m):
         assert m.ndim == 3
@@ -160,10 +169,11 @@ class RandomAffineTransform:
         mat_rotate = np.identity(3)
         if self.random_state.uniform() < self.rotate_exec_prob:
             theta = self.random_state.randint(-self.angle_spectrum, self.angle_spectrum)
-            mat_rotate[1,1] = math.cos(math.radians(theta))
-            mat_rotate[1,2] = -math.sin(math.radians(theta))
-            mat_rotate[2,1] = math.sin(math.radians(theta))
-            mat_rotate[2,2] = math.cos(math.radians(theta))
+            axis = self.axes[self.random_state.randint(len(self.axes))]
+            mat_rotate[axis[1],axis[1]] = math.cos(math.radians(theta))
+            mat_rotate[axis[1],axis[0]] = -math.sin(math.radians(theta))
+            mat_rotate[axis[0],axis[1]] = math.sin(math.radians(theta))
+            mat_rotate[axis[0],axis[0]] = math.cos(math.radians(theta))
 
         mat = np.dot(np.dot(mat_rotate, mat_scale), mat_shear)
         if self.cval is None:
