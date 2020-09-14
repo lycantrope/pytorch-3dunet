@@ -118,8 +118,8 @@ class RandomRotate:
 class RandomAffineTransform:
     """ Implements a random affine transform. Includes shear, scaling, rotation, and (TODO) translation. 
         Order is shear, then scale, then rotation. Only rotates in xy plane."""
-    def __init__(self, random_state, sigma_xy_shear=0.1, sigma_zstack_shear=0.5, sigma_zwarp_shear=0, sigma_scale_xy=0.1, sigma_scale_z=0, angle_spectrum=30, axes=[(2,1)],
-            shear_exec_prob=0.2, rotate_exec_prob=0.2, scale_exec_prob=0.2, translate_exec_prob=0.4, translate_x=100, translate_y=20, translate_z=5, mode='constant', order=1, cval=None, **kwargs):
+    def __init__(self, random_state, sigma_xy_shear=0.1, sigma_zstack_shear=0.1, sigma_zwarp_shear=0.1, sigma_scale_xy=0.1, sigma_scale_z=0.1, sigma_rotate=15, axes=None,
+            shear_exec_prob=0.2, rotate_exec_prob=0.2, scale_exec_prob=0.2, translate_exec_prob=0.4, translate_x=50, translate_y=20, translate_z=10, mode='constant', order=1, cval=None, **kwargs):
         if axes is None:
             axes = [(1, 0), (2, 1), (2, 0)]
         else:
@@ -130,7 +130,7 @@ class RandomAffineTransform:
         self.sigma_zwarp_shear = sigma_zwarp_shear
         self.sigma_scale_xy = sigma_scale_xy
         self.sigma_scale_z = sigma_scale_z
-        self.angle_spectrum = angle_spectrum
+        self.sigma_rotate = sigma_rotate
         self.shear_exec_prob = shear_exec_prob
         self.rotate_exec_prob = rotate_exec_prob
         self.scale_exec_prob = scale_exec_prob
@@ -168,7 +168,7 @@ class RandomAffineTransform:
         
         mat_rotate = np.identity(3)
         if self.random_state.uniform() < self.rotate_exec_prob:
-            theta = self.random_state.randint(-self.angle_spectrum, self.angle_spectrum)
+            theta = self.random_state.normal(0, self.sigma_rotate)
             axis = self.axes[self.random_state.randint(len(self.axes))]
             mat_rotate[axis[1],axis[1]] = math.cos(math.radians(theta))
             mat_rotate[axis[1],axis[0]] = -math.sin(math.radians(theta))
@@ -221,18 +221,19 @@ class RandomContrast:
 
 class BSplineDeformation:
     """ Apply B-Spline transformations to 3D patches. """
-    def __init__(self, random_state, order=3, execution_probability=0.2, cval=None, spacing=100, sigma=20, interpolator='linear', **kwargs):
+    def __init__(self, random_state, order=3, execution_probability=0.2, cval=None, spacing=100, sigma=20, use_z=True, interpolator='linear', **kwargs):
         self.random_state = random_state
         self.order = order
         self.execution_probability = execution_probability
         self.cval = cval
         self.spacing = spacing
         self.sigma = sigma
+        self.use_z = use_z
         if interpolator == 'bspline':
             self.interpolator = sitk.sitkBSpline
         elif interpolator == 'linear':
             self.interpolator = sitk.sitkLinear
-        elif intrpolator == 'nn':
+        elif interpolator == 'nn':
             self.interpolator = sitk.sitkNearestNeighbor
         else:
             raise NotImplementedError("ERROR: interpolator " + str(interpolator) + " not implemented.")
@@ -245,18 +246,29 @@ class BSplineDeformation:
                 cval = np.median(m)
             else:
                 cval = self.cval
-            bsp_grid_size = [math.floor(m.shape[2]/self.spacing), math.floor(m.shape[1]/self.spacing)]
-            imgs = [sitk.GetImageFromArray(m[i], isVector=False) for i in range(m.shape[0])]
-            t = sitk.BSplineTransformInitializer(imgs[0], bsp_grid_size, order=self.order)
+            if self.use_z:
+                bsp_grid_size = [math.floor(m.shape[2]/self.spacing), math.floor(m.shape[1]/self.spacing), math.floor(m.shape[0]/self.spacing)]
+                raw_img = sitk.GetImageFromArray(m)
+                t = sitk.BSplineTransformInitializer(raw_img, bsp_grid_size, order=3)
+            else:
+                bsp_grid_size = [math.floor(m.shape[2]/self.spacing), math.floor(m.shape[1]/self.spacing)]
+                imgs = [sitk.GetImageFromArray(m[i], isVector=False) for i in range(m.shape[0])]
+                t = sitk.BSplineTransformInitializer(imgs[0], bsp_grid_size, order=self.order)
             params = np.asarray(t.GetParameters(), dtype=np.float64)
             params = params + self.random_state.randn(params.shape[0]) * self.sigma
             t.SetParameters(tuple(params))
             resampler = sitk.ResampleImageFilter()
-            resampler.SetReferenceImage(imgs[0])
+            if self.use_z:
+                resampler.SetReferenceImage(raw_img)
+            else:
+                resampler.SetReferenceImage(imgs[0])
             resampler.SetInterpolator(self.interpolator)
             resampler.SetDefaultPixelValue(cval)
             resampler.SetTransform(t)
-            result = np.array([sitk.GetArrayFromImage(resampler.Execute(img)) for img in imgs])
+            if self.use_z:
+                result = np.array(sitk.GetArrayFromImage(resampler.Execute(raw_img)))
+            else:
+                result = np.array([sitk.GetArrayFromImage(resampler.Execute(img)) for img in imgs])
             return result
         return m
 

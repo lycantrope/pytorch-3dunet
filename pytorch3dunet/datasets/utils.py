@@ -146,6 +146,7 @@ class PixelWiseWeightedSliceBuilder(SliceBuilder):
         self._raw_slices = self._build_slices_weighted(weight_dataset[0], num_patches, patch_shape, weight_dataset[0].shape)
         self._label_slices = self._raw_slices
         self._weight_slices = self._raw_slices
+
     
     @staticmethod
     def _index_to_coordinate(index, dataset_shape):

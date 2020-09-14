@@ -32,6 +32,7 @@ class UNet3DTrainer:
         max_num_iterations (int): maximum number of iterations
         validate_after_iters (int): validate after that many iterations
         log_after_iters (int): number of iterations before logging to tensorboard
+        h5_dir (string): directory to store augmented h5 files
         validate_iters (int): number of validation iterations, if None validate
             on the whole validation set
         eval_score_higher_is_better (bool): if True higher eval scores are considered better
@@ -47,7 +48,7 @@ class UNet3DTrainer:
     def __init__(self, model, optimizer, lr_scheduler, loss_criterion,
                  eval_criterion, device, loaders, checkpoint_dir,
                  max_num_epochs=100, max_num_iterations=1e5,
-                 validate_after_iters=100, checkpoint_after_iters=500, log_after_iters=100,
+                 validate_after_iters=100, checkpoint_after_iters=500,  h5_dir="", log_after_iters=100,
                  validate_iters=None, num_iterations=1, num_epoch=0,
                  eval_score_higher_is_better=True, best_eval_score=None,
                  tensorboard_formatter=None, skip_train_validation=False):
@@ -60,6 +61,7 @@ class UNet3DTrainer:
         self.device = device
         self.loaders = loaders
         self.checkpoint_dir = checkpoint_dir
+        self.h5_dir = h5_dir
         self.max_num_epochs = max_num_epochs
         self.max_num_iterations = max_num_iterations
         self.validate_after_iters = validate_after_iters
@@ -100,7 +102,7 @@ class UNet3DTrainer:
         return cls(model, optimizer, lr_scheduler,
                    loss_criterion, eval_criterion,
                    torch.device(state['device']),
-                   loaders, checkpoint_dir,
+                   loaders, checkpoint_dir, 
                    eval_score_higher_is_better=state['eval_score_higher_is_better'],
                    best_eval_score=state['best_eval_score'],
                    num_iterations=state['num_iterations'],
@@ -109,6 +111,7 @@ class UNet3DTrainer:
                    max_num_iterations=state['max_num_iterations'],
                    validate_after_iters=state['validate_after_iters'],
                    log_after_iters=state['log_after_iters'],
+                   h5_dir=state['h5_dir'],
                    validate_iters=state['validate_iters'],
                    tensorboard_formatter=tensorboard_formatter,
                    skip_train_validation=skip_train_validation)
@@ -117,7 +120,7 @@ class UNet3DTrainer:
     def from_pretrained(cls, pre_trained, model, optimizer, lr_scheduler, loss_criterion, eval_criterion,
                         device, loaders,
                         max_num_epochs=100, max_num_iterations=1e5,
-                        validate_after_iters=100, log_after_iters=100,
+                        validate_after_iters=100, log_after_iters=100, h5_dir="",
                         validate_iters=None, num_iterations=1, num_epoch=0,
                         eval_score_higher_is_better=True, best_eval_score=None,
                         tensorboard_formatter=None, skip_train_validation=False):
@@ -135,6 +138,7 @@ class UNet3DTrainer:
                    max_num_iterations=max_num_iterations,
                    validate_after_iters=validate_after_iters,
                    log_after_iters=log_after_iters,
+                   h5_dir=h5_dir,
                    validate_iters=validate_iters,
                    tensorboard_formatter=tensorboard_formatter,
                    skip_train_validation=skip_train_validation)
@@ -207,14 +211,15 @@ class UNet3DTrainer:
             if self.num_iterations % self.log_after_iters == 0:
                 # if model contains final_activation layer for normalizing logits apply it, otherwise both
                 # the evaluation metric as well as images in tensorboard will be incorrectly computed
-                with h5py.File("/home/aaatanas/h5/iter_" + str(self.num_iterations) + ".h5", "w") as f:
-                    r = f.create_dataset("raw", t[0].shape)
-                    l = f.create_dataset("label", t[0].shape)
-                    w = f.create_dataset("weight", t[0].shape)
-                    for i in range(input.shape[0]):
-                        r[i] = t[0][i]
-                        l[i] = t[1][i]
-                        w[i] = t[2][i]
+                if self.h5_dir != "":
+                    with h5py.File(self.h5_dir + "/iter_" + str(self.num_iterations) + ".h5", "w") as f:
+                        r = f.create_dataset("raw", t[0].shape)
+                        l = f.create_dataset("label", t[0].shape)
+                        w = f.create_dataset("weight", t[0].shape)
+                        for i in range(input.shape[0]):
+                            r[i] = t[0][i]
+                            l[i] = t[1][i]
+                            w[i] = t[2][i]
 
 
                 if hasattr(self.model, 'final_activation') and self.model.final_activation is not None:
@@ -353,6 +358,7 @@ class UNet3DTrainer:
             'max_num_iterations': self.max_num_iterations,
             'validate_after_iters': self.validate_after_iters,
             'log_after_iters': self.log_after_iters,
+            'h5_dir': self.h5_dir,
             'validate_iters': self.validate_iters
         }, is_best, checkpoint_dir=self.checkpoint_dir,
             logger=logger, iter=iter)
