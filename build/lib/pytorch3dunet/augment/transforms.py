@@ -116,7 +116,7 @@ class RandomRotate:
 
 
 class RandomAffineTransform:
-    """ Implements a random affine transform. Includes shear, scaling, rotation, and (TODO) translation.
+    """ Implements a random affine transform. Includes shear, scaling, rotation, and (TODO) translation. 
         Order is shear, then scale, then rotation. Only rotates in xy plane."""
     def __init__(self, random_state, sigma_xy_shear=0.1, sigma_zstack_shear=0.1, sigma_zwarp_shear=0.1, sigma_scale_xy=0.1, sigma_scale_z=0.1, sigma_rotate=15, axes=None,
             shear_exec_prob=0.2, rotate_exec_prob=0.2, scale_exec_prob=0.2, translate_exec_prob=0.4, translate_x=50, translate_y=20, translate_z=10, mode='constant', order=1, cval=None, **kwargs):
@@ -165,7 +165,7 @@ class RandomAffineTransform:
                 mat_scale[2,2] = self.random_state.normal(1,self.sigma_scale_xy)
             if self.sigma_scale_z > 0:
                 mat_scale[0,0] = self.random_state.normal(1,self.sigma_scale_z)
-
+        
         mat_rotate = np.identity(3)
         if self.random_state.uniform() < self.rotate_exec_prob:
             theta = self.random_state.normal(0, self.sigma_rotate)
@@ -180,7 +180,7 @@ class RandomAffineTransform:
             cval = np.median(m)
         else:
             cval = self.cval
-
+        
         offset = [0,0,0]
         if self.random_state.uniform() < self.translate_exec_prob:
             offset[0] = self.random_state.randint(-self.translate_z, self.translate_z)
@@ -218,114 +218,6 @@ class RandomContrast:
             return np.clip(result, -1, 1)
 
         return m
-
-class RandomITKDeformation:
-    """ Implements a random ITK transform. Includes shear, scaling, rotation, translation, and B-Spline.
-        Order is shear, then scale, then rotation, then B-Spline."""
-    def __init__(self, random_state, sigma_xy_shear=0.1, sigma_zstack_shear=0.1, sigma_zwarp_shear=0.1, sigma_scale_xy=0.1, sigma_scale_z=0.1, sigma_rotate=15, axes=None,
-            shear_exec_prob=0.2, rotate_exec_prob=0.2, scale_exec_prob=0.2, translate_exec_prob=0.4, translate_x=50, translate_y=20, translate_z=10, mode='constant', order=1, cval=None,
-            bspline_exec_prob=0.2, interpolator='linear', spacing=50, sigma=10, **kwargs):
-        if axes is None:
-            axes = [(1, 0), (2, 1), (2, 0)]
-        else:
-            assert isinstance(axes, list) and len(axes) > 0
-        self.random_state = random_state
-        self.sigma_xy_shear = sigma_xy_shear
-        self.sigma_zstack_shear = sigma_zstack_shear
-        self.sigma_zwarp_shear = sigma_zwarp_shear
-        self.sigma_scale_xy = sigma_scale_xy
-        self.sigma_scale_z = sigma_scale_z
-        self.sigma_rotate = sigma_rotate
-        self.shear_exec_prob = shear_exec_prob
-        self.rotate_exec_prob = rotate_exec_prob
-        self.scale_exec_prob = scale_exec_prob
-        self.cval = cval
-        self.translate_x = translate_x
-        self.translate_y = translate_y
-        self.translate_z = translate_z
-        self.translate_exec_prob = translate_exec_prob
-        self.bspline_exec_prob = bspline_exec_prob
-        self.axes = axes
-        self.spacing = spacing
-        self.sigma = sigma
-        if interpolator == 'bspline':
-            self.interpolator = sitk.sitkBSpline
-        elif interpolator == 'linear':
-            self.interpolator = sitk.sitkLinear
-        elif interpolator == 'nn':
-            self.interpolator = sitk.sitkNearestNeighbor
-        else:
-            raise NotImplementedError("ERROR: interpolator " + str(interpolator) + " not implemented.")
-
-
-    def __call__(self, m):
-        mat_shear = np.identity(3)
-        # SimpleITK pararmeters are in (x,y,z) order instead of (z,y,x) order
-        if self.random_state.uniform() < self.shear_exec_prob:
-            if self.sigma_xy_shear > 0:
-                mat_shear[0,1] = self.random_state.normal(0,self.sigma_xy_shear)
-                mat_shear[1,0] = self.random_state.normal(0,self.sigma_xy_shear)
-            if self.sigma_zstack_shear > 0:
-                mat_shear[0,2] = self.random_state.normal(0,self.sigma_zstack_shear)
-                mat_shear[1,2] = self.random_state.normal(0,self.sigma_zstack_shear)
-            if self.sigma_zwarp_shear > 0:
-                mat_shear[2,1] = self.random_state.normal(0,self.sigma_zwarp_shear)
-                mat_shear[2,0] = self.random_state.normal(0,self.sigma_zwarp_shear)
-
-        mat_scale = np.identity(3)
-
-        if self.random_state.uniform() < self.scale_exec_prob:
-            if self.sigma_scale_xy > 0:
-                mat_scale[1,1] = self.random_state.normal(1,self.sigma_scale_xy)
-                mat_scale[0,0] = self.random_state.normal(1,self.sigma_scale_xy)
-            if self.sigma_scale_z > 0:
-                mat_scale[2,2] = self.random_state.normal(1,self.sigma_scale_z)
-
-        mat_rotate = np.identity(3)
-        if self.random_state.uniform() < self.rotate_exec_prob:
-            theta = self.random_state.normal(0, self.sigma_rotate)
-            axis = self.axes[self.random_state.randint(len(self.axes))]
-            mat_rotate[axis[1],axis[1]] = math.cos(math.radians(theta))
-            mat_rotate[axis[1],axis[0]] = -math.sin(math.radians(theta))
-            mat_rotate[axis[0],axis[1]] = math.sin(math.radians(theta))
-            mat_rotate[axis[0],axis[0]] = math.cos(math.radians(theta))
-
-        mat = np.dot(np.dot(mat_rotate, mat_scale), mat_shear)
-        if self.cval is None:
-            cval = np.median(m)
-        else:
-            cval = self.cval
-
-        offset = [0,0,0]
-        if self.random_state.uniform() < self.translate_exec_prob:
-            offset[2] = self.random_state.randint(-self.translate_z, self.translate_z)
-            offset[1] = self.random_state.randint(-self.translate_y, self.translate_y)
-            offset[0] = self.random_state.randint(-self.translate_x, self.translate_x)
-
-        mat = np.column_stack([mat, offset])
-
-        aff_tfm = sitk.AffineTransform(3)
-        aff_tfm.SetParameters(mat.T.flatten())
-        raw_img = sitk.GetImageFromArray(m)
-        t = aff_tfm
-        if self.random_state.uniform() < self.bspline_exec_prob:
-            bsp_grid_size = [math.floor(m.shape[2]/self.spacing), math.floor(m.shape[1]/self.spacing), math.floor(m.shape[0]/self.spacing)]
-            bspline_tfm = sitk.BSplineTransformInitializer(raw_img, bsp_grid_size, order=3)
-            params = np.asarray(bspline_tfm.GetParameters(), dtype=np.float64)
-            params = params + self.random_state.randn(params.shape[0]) * self.sigma
-            bspline_tfm.SetParameters(tuple(params))
-            t = sitk.Transform(3, sitk.sitkComposite)
-            t.AddTransform(aff_tfm)
-            t.AddTransform(bspline_tfm)
-
-        resampler = sitk.ResampleImageFilter()
-        resampler.SetReferenceImage(raw_img)
-        resampler.SetInterpolator(self.interpolator)
-        resampler.SetDefaultPixelValue(cval)
-        resampler.SetTransform(t)
-        result = np.array(sitk.GetArrayFromImage(resampler.Execute(raw_img)))
-        return result
-
 
 class BSplineDeformation:
     """ Apply B-Spline transformations to 3D patches. """
