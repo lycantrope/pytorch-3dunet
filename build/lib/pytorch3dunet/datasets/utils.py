@@ -1,4 +1,4 @@
-import collections
+import collections.abc as collections
 import importlib
 
 import numpy as np
