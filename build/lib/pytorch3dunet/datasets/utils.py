@@ -133,7 +133,7 @@ class PixelWiseWeightedSliceBuilder(SliceBuilder):
     def __init__(self, raw_datasets, label_datasets, weight_dataset, patch_shape, stride_shape, **kwargs):
         #assert self.weight_dataset is not None, "Weight dataset must be nonempty"
         
-        assert raw_datasets[0].ndim == 3, "Only 3D datasets supported for this slice builder."
+        # assert raw_datasets[0].ndim == 3, "Only 3D datasets supported for this slice builder."
 
         patch_shape = tuple(patch_shape)
 
