@@ -158,6 +158,9 @@ class PixelWiseMeanIoU:
             for c in range(n_classes):
                 if c in self.skip_channels:
                     continue
+                # ignore channels with no true positives
+                if torch.sum(_target[c]) == 0:
+                    continue
                 if weights.dim() == 4:
                     per_channel_iou.append(self._jaccard_index(binary_prediction[c], _target[c], _weight, self.weight_equal))
                 elif weights.dim() == 5:
