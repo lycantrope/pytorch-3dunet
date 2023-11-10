@@ -295,9 +295,9 @@ class RandomITKDeformation:
             axis = axes[self.random_state.randint(len(axes))]
 
             if axis == (1,2):
-                theta = self.random_state.normal(0, self.sigma_rotate_xy)
+                theta = self.random_state.normal(0, self.sigma_xy_rotate)
             else:
-                theta = self.random_state.normal(0, self.sigma_rotate_z)
+                theta = self.random_state.normal(0, self.sigma_z_rotate)
 
             mat_rotate[axis[1],axis[1]] = math.cos(math.radians(theta))
             mat_rotate[axis[1],axis[0]] = -math.sin(math.radians(theta))
