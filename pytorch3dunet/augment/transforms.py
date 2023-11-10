@@ -227,20 +227,17 @@ class RandomContrast:
 class RandomITKDeformation:
     """ Implements a random ITK transform. Includes shear, scaling, rotation, translation, and B-Spline.
         Order is shear, then scale, then rotation, then B-Spline."""
-    def __init__(self, random_state, sigma_xy_shear=0.1, sigma_zstack_shear=0.1, sigma_zwarp_shear=0.1, sigma_scale_xy=0.1, sigma_scale_z=0.1, sigma_rotate=15, axes=None,
+    def __init__(self, random_state, sigma_xy_shear=0.1, sigma_zstack_shear=0.1, sigma_zwarp_shear=0.1, sigma_scale_xy=0.1, sigma_scale_z=0.1, sigma_xy_rotate=15, sigma_z_rotate=5,
             shear_exec_prob=0.2, rotate_exec_prob=0.2, scale_exec_prob=0.2, translate_exec_prob=0.4, translate_x=50, translate_y=20, translate_z=10, mode='constant', order=1, cval=None,
             bspline_exec_prob=0.2, interpolator='linear', spacing=50, sigma=10, **kwargs):
-        if axes is None:
-            axes = [(1, 0), (2, 1), (2, 0)]
-        else:
-            assert isinstance(axes, list) and len(axes) > 0
         self.random_state = random_state
         self.sigma_xy_shear = sigma_xy_shear
         self.sigma_zstack_shear = sigma_zstack_shear
         self.sigma_zwarp_shear = sigma_zwarp_shear
         self.sigma_scale_xy = sigma_scale_xy
         self.sigma_scale_z = sigma_scale_z
-        self.sigma_rotate = sigma_rotate
+        self.sigma_xy_rotate = sigma_xy_rotate
+        self.sigma_z_rotate = sigma_z_rotate
         self.shear_exec_prob = shear_exec_prob
         self.rotate_exec_prob = rotate_exec_prob
         self.scale_exec_prob = scale_exec_prob
@@ -250,7 +247,6 @@ class RandomITKDeformation:
         self.translate_z = translate_z
         self.translate_exec_prob = translate_exec_prob
         self.bspline_exec_prob = bspline_exec_prob
-        self.axes = axes
         self.spacing = spacing
         self.sigma = sigma
         if interpolator == 'bspline':
@@ -291,8 +287,14 @@ class RandomITKDeformation:
 
         mat_rotate = np.identity(3)
         if self.random_state.uniform() < self.rotate_exec_prob:
-            theta = self.random_state.normal(0, self.sigma_rotate)
-            axis = self.axes[self.random_state.randint(len(self.axes))]
+            axes = [(0,1), (0,2), (1,2)]
+            axis = axes[self.random_state.randint(len(axes))]
+
+            if axis == (1,2):
+                theta = self.random_state.normal(0, self.sigma_rotate_xy)
+            else:
+                theta = self.random_state.normal(0, self.sigma_rotate_z)
+
             mat_rotate[axis[1],axis[1]] = math.cos(math.radians(theta))
             mat_rotate[axis[1],axis[0]] = -math.sin(math.radians(theta))
             mat_rotate[axis[0],axis[1]] = math.sin(math.radians(theta))
