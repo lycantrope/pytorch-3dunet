@@ -196,12 +196,10 @@ class RandomAffineTransform:
 
         return m
 
-
-
-
 class RandomContrast:
     """
     Adjust contrast by scaling each voxel to `mean + alpha * (v - mean)`.
+    For 4D input (CxDxHxW), it applies the adjustment independently for each channel.
     """
 
     def __init__(self, random_state, alpha=(0.5, 1.5), mean=0.0, execution_probability=0.1, **kwargs):
@@ -214,15 +212,21 @@ class RandomContrast:
 
     def __call__(self, m):
         if self.random_state.uniform() < self.execution_probability:
-            if self.use_data_mean:
-                mu = np.mean(m)
-            else:
-                mu = self.mean
-            alpha = self.random_state.uniform(self.alpha[0], self.alpha[1])
-            result = mu + alpha * (m - mu)
-            return np.clip(result, -1, 1)
-
+            if m.ndim == 3:  # For 3D data
+                return self.adjust_contrast(m)
+            elif m.ndim == 4:  # For 4D data
+                return np.array([self.adjust_contrast(channel) for channel in m])
         return m
+
+    def adjust_contrast(self, data):
+        if self.use_data_mean:
+            mu = np.mean(data)
+        else:
+            mu = self.mean
+        alpha = self.random_state.uniform(self.alpha[0], self.alpha[1])
+        result = mu + alpha * (data - mu)
+        return np.clip(result, -1, 1)
+
 
 class RandomITKDeformation:
     """ Implements a random ITK transform. Includes shear, scaling, rotation, translation, and B-Spline.
