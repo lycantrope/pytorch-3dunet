@@ -320,7 +320,6 @@ class RandomITKDeformation:
 
                 mat_rotate_axis = np.identity(4)  # Make it 4x4 for homogeneous coordinates
 
-
                 mat_rotate_axis[axis[1],axis[1]] = math.cos(math.radians(theta))
                 mat_rotate_axis[axis[1],axis[0]] = -math.sin(math.radians(theta))
                 mat_rotate_axis[axis[0],axis[1]] = math.sin(math.radians(theta))
@@ -331,7 +330,7 @@ class RandomITKDeformation:
 
                 combined_transform = np.dot(np.dot(translate_back, mat_rotate_axis), translate_to_origin)
 
-                mat_rotate = np.dot(mat_rotate, combined_transform)
+                mat_rotate = np.dot(combined_transform, mat_rotate)
 
         offset += mat_rotate[:3, 3]
         mat_rotate = mat_rotate[:3, :3]
