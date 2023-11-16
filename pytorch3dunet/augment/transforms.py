@@ -232,7 +232,7 @@ class RandomITKDeformation:
     """ Implements a random ITK transform. Includes shear, scaling, rotation, translation, and B-Spline.
         Order is B-Spline, then shear, then scale, then rotation."""
     def __init__(self, random_state, sigma_xy_shear=0.1, sigma_zstack_shear=0.1, sigma_zwarp_shear=0.1, sigma_scale_xy=0.1, sigma_scale_z=0.1, sigma_xy_rotate=15, sigma_xz_rotate=1, sigma_yz_rotate=5,
-            shear_exec_prob=0.2, rotate_exec_prob=0.2, scale_exec_prob=0.2, translate_exec_prob=0.4, translate_x=50, translate_y=20, translate_z=10, mode='constant', order=1, cval=None,
+            shear_exec_prob=0.2, xy_rotate_exec_prob=0.2, xz_rotate_exec_prob=0.2, yz_rotate_exec_prob=0.2, scale_exec_prob=0.2, translate_exec_prob=0.4, translate_x=50, translate_y=20, translate_z=10, mode='constant', order=1, cval=None,
             bspline_exec_prob=0.2, interpolator='linear', bspline_order=2, bspline_ctrl_points_x=3, bspline_bend_lim=0.35, bspline_sigma=5, **kwargs):
         self.random_state = random_state
         self.sigma_xy_shear = sigma_xy_shear
@@ -244,7 +244,9 @@ class RandomITKDeformation:
         self.sigma_xz_rotate = sigma_xz_rotate
         self.sigma_yz_rotate = sigma_yz_rotate
         self.shear_exec_prob = shear_exec_prob
-        self.rotate_exec_prob = rotate_exec_prob
+        self.xy_rotate_exec_prob = xy_rotate_exec_prob
+        self.xz_rotate_exec_prob = xz_rotate_exec_prob
+        self.yz_rotate_exec_prob = yz_rotate_exec_prob
         self.scale_exec_prob = scale_exec_prob
         self.cval = cval
         self.translate_x = translate_x
@@ -297,38 +299,36 @@ class RandomITKDeformation:
 
         offset = [0,0,0]
 
-        if self.random_state.uniform() < self.rotate_exec_prob:
-            centroid = np.array([m.shape[2] / 2, m.shape[1] / 2, m.shape[0] / 2])
+        rotate_probs = [self.xy_rotate_exec_prob, self.xz_rotate_exec_prob, self.yz_rotate_exec_prob]
+        rotate_axes = [(0,1), (0,2), (1,2)]
+        rotate_sigmas = [self.sigma_xy_rotate, self.sigma_xz_rotate, self.sigma_yz_rotate]
+        centroid = np.array([m.shape[2] / 2, m.shape[1] / 2, m.shape[0] / 2])
 
-            # Step 1: Translate to move centroid to origin
-            translate_to_origin = np.identity(4)
-            translate_to_origin[:3, 3] = -centroid
+        for dim in range(3):
+            if self.random_state.uniform() < rotate_probs[dim]:
+                # Step 1: Translate to move centroid to origin
+                translate_to_origin = np.identity(4)
+                translate_to_origin[:3, 3] = -centroid
 
-            # Your existing rotation code here
-            mat_rotate = np.identity(4)  # Make it 4x4 for homogeneous coordinates
-            axes = [(0,1), (0,2), (1,2)]
-            axis = axes[self.random_state.randint(len(axes))]
+                # Your existing rotation code here
+                mat_rotate = np.identity(4)  # Make it 4x4 for homogeneous coordinates
+                axis = rotate_axes[dim]
 
-            if axis == (0,1):
-                theta = self.random_state.normal(0, self.sigma_xy_rotate)
-            elif axis == (0,2):
-                theta = self.random_state.normal(0, self.sigma_xz_rotate)
-            else:
-                theta = self.random_state.normal(0, self.sigma_yz_rotate)
+                theta = self.random_state.normal(0, rotate_sigmas[dim])
 
-            mat_rotate[axis[1],axis[1]] = math.cos(math.radians(theta))
-            mat_rotate[axis[1],axis[0]] = -math.sin(math.radians(theta))
-            mat_rotate[axis[0],axis[1]] = math.sin(math.radians(theta))
-            mat_rotate[axis[0],axis[0]] = math.cos(math.radians(theta))
+                mat_rotate[axis[1],axis[1]] = math.cos(math.radians(theta))
+                mat_rotate[axis[1],axis[0]] = -math.sin(math.radians(theta))
+                mat_rotate[axis[0],axis[1]] = math.sin(math.radians(theta))
+                mat_rotate[axis[0],axis[0]] = math.cos(math.radians(theta))
 
-            translate_back = np.identity(4)
-            translate_back[:3, 3] = centroid
+                translate_back = np.identity(4)
+                translate_back[:3, 3] = centroid
 
-            combined_transform = np.dot(np.dot(translate_back, mat_rotate), translate_to_origin)
+                combined_transform = np.dot(np.dot(translate_back, mat_rotate), translate_to_origin)
 
-            mat_rotate = combined_transform[:3, :3]
+                mat_rotate = combined_transform[:3, :3]
 
-            offset += combined_transform[:3, 3]
+                offset += combined_transform[:3, 3]
 
 
         mat = np.dot(np.dot(mat_rotate, mat_scale), mat_shear)
