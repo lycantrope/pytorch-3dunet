@@ -349,7 +349,7 @@ class RandomITKDeformation:
                 dists_y[i-1] = y_params[i] - y_params[i-1]    
                 thetas_y[i-1] = np.arctan2(dists_y[i-1], dist_x)
 
-            max_y_dist = mNeptune.shape[1] / (bspline_order - 1)
+            max_y_dist = m.shape[1] / (bspline_order - 1)
 
             tot_displacement = np.sqrt(2) * max_y_dist * np.sqrt(1 - np.cos(thetas_y))
             x_displacement = tot_displacement * np.cos(thetas_y / 2)
