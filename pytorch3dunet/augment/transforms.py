@@ -379,8 +379,6 @@ class RandomITKDeformation:
                 for j in range(bspline_order + 1):
                     start_index = j * (n_ctrl_points_x + bspline_order) * (bspline_order + 1) + 1 + i * (n_ctrl_points_x + bspline_order)  # Start of the larger group
                     end_index = start_index + (n_ctrl_points_x + bspline_order) - 1 # End of the middle smaller group (5 elements)
-
-                    print(start_index)
                     # Modify the elements in this range
                     x_params[start_index:end_index] += x_displacement * factor[i]
                     y_params[start_index:end_index] += y_displacement * factor[i]
