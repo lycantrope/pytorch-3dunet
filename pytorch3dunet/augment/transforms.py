@@ -231,7 +231,7 @@ class RandomContrast:
 class RandomITKDeformation:
     """ Implements a random ITK transform. Includes shear, scaling, rotation, translation, and B-Spline.
         Order is shear, then scale, then rotation, then B-Spline."""
-    def __init__(self, random_state, sigma_xy_shear=0.1, sigma_zstack_shear=0.1, sigma_zwarp_shear=0.1, sigma_scale_xy=0.1, sigma_scale_z=0.1, sigma_xy_rotate=15, sigma_z_rotate=5,
+    def __init__(self, random_state, sigma_xy_shear=0.1, sigma_zstack_shear=0.1, sigma_zwarp_shear=0.1, sigma_scale_xy=0.1, sigma_scale_z=0.1, sigma_xy_rotate=15, sigma_xz_rotate=1, sigma_yz_rotate=5,
             shear_exec_prob=0.2, rotate_exec_prob=0.2, scale_exec_prob=0.2, translate_exec_prob=0.4, translate_x=50, translate_y=20, translate_z=10, mode='constant', order=1, cval=None,
             bspline_exec_prob=0.2, interpolator='linear', bspline_order=2, bspline_ctrl_points_x=3, bspline_bend_lim=0.35, bspline_sigma=5, **kwargs):
         self.random_state = random_state
@@ -241,7 +241,8 @@ class RandomITKDeformation:
         self.sigma_scale_xy = sigma_scale_xy
         self.sigma_scale_z = sigma_scale_z
         self.sigma_xy_rotate = sigma_xy_rotate
-        self.sigma_z_rotate = sigma_z_rotate
+        self.sigma_xz_rotate = sigma_xz_rotate
+        self.sigma_yz_rotate = sigma_yz_rotate
         self.shear_exec_prob = shear_exec_prob
         self.rotate_exec_prob = rotate_exec_prob
         self.scale_exec_prob = scale_exec_prob
@@ -301,8 +302,10 @@ class RandomITKDeformation:
 
             if axis == (1,2):
                 theta = self.random_state.normal(0, self.sigma_xy_rotate)
+            elif axis == (0,2):
+                theta = self.random_state.normal(0, self.sigma_xz_rotate)
             else:
-                theta = self.random_state.normal(0, self.sigma_z_rotate)
+                theta = self.random_state.normal(0, self.sigma_yz_rotate)
 
             mat_rotate[axis[1],axis[1]] = math.cos(math.radians(theta))
             mat_rotate[axis[1],axis[0]] = -math.sin(math.radians(theta))
