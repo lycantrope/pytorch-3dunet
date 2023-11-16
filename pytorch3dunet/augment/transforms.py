@@ -230,7 +230,7 @@ class RandomContrast:
 
 class RandomITKDeformation:
     """ Implements a random ITK transform. Includes shear, scaling, rotation, translation, and B-Spline.
-        Order is shear, then scale, then rotation, then B-Spline."""
+        Order is B-Spline, then shear, then scale, then rotation."""
     def __init__(self, random_state, sigma_xy_shear=0.1, sigma_zstack_shear=0.1, sigma_zwarp_shear=0.1, sigma_scale_xy=0.1, sigma_scale_z=0.1, sigma_xy_rotate=15, sigma_xz_rotate=1, sigma_yz_rotate=5,
             shear_exec_prob=0.2, rotate_exec_prob=0.2, scale_exec_prob=0.2, translate_exec_prob=0.4, translate_x=50, translate_y=20, translate_z=10, mode='constant', order=1, cval=None,
             bspline_exec_prob=0.2, interpolator='linear', bspline_order=2, bspline_ctrl_points_x=3, bspline_bend_lim=0.35, bspline_sigma=5, **kwargs):
@@ -295,22 +295,41 @@ class RandomITKDeformation:
             if self.sigma_scale_z > 0:
                 mat_scale[2,2] = self.random_state.normal(1,self.sigma_scale_z)
 
-        mat_rotate = np.identity(3)
+        offset = [0,0,0]
+
         if self.random_state.uniform() < self.rotate_exec_prob:
+            centroid = np.array([m.shape[2] / 2, m.shape[1] / 2, m.shape[0] / 2])
+
+            # Step 1: Translate to move centroid to origin
+            translate_to_origin = np.identity(4)
+            translate_to_origin[:3, 3] = -centroid
+
+            # Your existing rotation code here
+            mat_rotate = np.identity(4)  # Make it 4x4 for homogeneous coordinates
             axes = [(0,1), (0,2), (1,2)]
             axis = axes[self.random_state.randint(len(axes))]
 
-            if axis == (1,2):
-                theta = self.random_state.normal(0, self.sigma_xy_rotate)
+            if axis == (0,1):
+                theta = random_state.normal(0, self.sigma_xy_rotate)
             elif axis == (0,2):
-                theta = self.random_state.normal(0, self.sigma_xz_rotate)
+                theta = random_state.normal(0, self.sigma_xz_rotate)
             else:
-                theta = self.random_state.normal(0, self.sigma_yz_rotate)
+                theta = random_state.normal(0, self.sigma_yz_rotate)
 
             mat_rotate[axis[1],axis[1]] = math.cos(math.radians(theta))
             mat_rotate[axis[1],axis[0]] = -math.sin(math.radians(theta))
             mat_rotate[axis[0],axis[1]] = math.sin(math.radians(theta))
             mat_rotate[axis[0],axis[0]] = math.cos(math.radians(theta))
+
+            translate_back = np.identity(4)
+            translate_back[:3, 3] = centroid
+
+            combined_transform = np.dot(np.dot(translate_back, mat_rotate), translate_to_origin)
+
+            mat_rotate = combined_transform[:3, :3]
+
+            offset += combined_transform[:3, 3]
+
 
         mat = np.dot(np.dot(mat_rotate, mat_scale), mat_shear)
         if self.cval is None:
@@ -318,16 +337,16 @@ class RandomITKDeformation:
         else:
             cval = self.cval
 
-        offset = [0,0,0]
         if self.random_state.uniform() < self.translate_exec_prob:
-            offset[2] = self.random_state.randint(-self.translate_z, self.translate_z)
-            offset[1] = self.random_state.randint(-self.translate_y, self.translate_y)
-            offset[0] = self.random_state.randint(-self.translate_x, self.translate_x)
+            offset[2] += self.random_state.randint(-self.translate_z, self.translate_z)
+            offset[1] += self.random_state.randint(-self.translate_y, self.translate_y)
+            offset[0] += self.random_state.randint(-self.translate_x, self.translate_x)
 
         mat = np.column_stack([mat, offset])
 
         aff_tfm = sitk.AffineTransform(3)
-        aff_tfm.SetParameters(mat.T.flatten())
+        aff_tfm.SetMatrix(mat.flatten())
+        aff_tfm.SetTranslation(offset)
         raw_img = sitk.GetImageFromArray(m)
         t = aff_tfm
         if self.random_state.uniform() < self.bspline_exec_prob:
@@ -394,8 +413,8 @@ class RandomITKDeformation:
 
             bspline_tfm.SetParameters(tuple(params))
             t = sitk.CompositeTransform(3)
-            t.AddTransform(aff_tfm)
             t.AddTransform(bspline_tfm)
+            t.AddTransform(aff_tfm)
 
         resampler = sitk.ResampleImageFilter()
         resampler.SetReferenceImage(raw_img)
