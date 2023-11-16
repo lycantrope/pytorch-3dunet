@@ -250,9 +250,8 @@ class RandomITKDeformation:
         self.translate_y = translate_y
         self.translate_z = translate_z
         self.translate_exec_prob = translate_exec_prob
-        self.bspline_exec_prob = bspline_exec_prob
-        self.spacing = spacing
 
+        self.bspline_exec_prob = bspline_exec_prob
         self.bspline_order = bspline_order
         self.bspline_ctrl_points_x = bspline_ctrl_points_x
         self.bspline_bend_lim = bspline_bend_lim
