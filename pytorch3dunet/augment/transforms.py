@@ -341,7 +341,7 @@ class RandomITKDeformation:
             dist_x = m.shape[2] / (bspline_order + 1)
 
             for i in range(n_ctrl_points_x + bspline_order):
-                y_params[i::n_ctrl_points_x + bspline_order] = random_state.rand() * 2 * dist_x * self.bspline_bend_lim - dist_x * self.bspline_bend_lim
+                y_params[i::n_ctrl_points_x + bspline_order] = self.random_state.rand() * 2 * dist_x * self.bspline_bend_lim - dist_x * self.bspline_bend_lim
 
             dists_y = np.zeros(n_ctrl_points_x + bspline_order - 1)
             thetas_y = np.zeros(n_ctrl_points_x + bspline_order - 1)
@@ -389,7 +389,7 @@ class RandomITKDeformation:
             x_params -= np.mean(x_params)
             y_params -= np.mean(y_params)
 
-            params += random_state.randn(params.shape[0]) * sigma
+            params += self.random_state.randn(params.shape[0]) * sigma
 
             bspline_tfm.SetParameters(tuple(params))
             t = sitk.CompositeTransform(3)
