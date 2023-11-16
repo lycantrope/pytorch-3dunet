@@ -342,8 +342,6 @@ class RandomITKDeformation:
             offset[1] += self.random_state.randint(-self.translate_y, self.translate_y)
             offset[0] += self.random_state.randint(-self.translate_x, self.translate_x)
 
-        mat = np.column_stack([mat, offset])
-
         aff_tfm = sitk.AffineTransform(3)
         aff_tfm.SetMatrix(mat.flatten())
         aff_tfm.SetTranslation(offset)
