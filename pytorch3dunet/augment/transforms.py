@@ -304,6 +304,9 @@ class RandomITKDeformation:
         rotate_sigmas = [self.sigma_xy_rotate, self.sigma_xz_rotate, self.sigma_yz_rotate]
         centroid = np.array([m.shape[2] / 2, m.shape[1] / 2, m.shape[0] / 2])
 
+        mat_rotate = np.identity(4)  # Make it 4x4 for homogeneous coordinates
+
+
         for dim in range(3):
             if self.random_state.uniform() < rotate_probs[dim]:
                 # Step 1: Translate to move centroid to origin
@@ -311,25 +314,27 @@ class RandomITKDeformation:
                 translate_to_origin[:3, 3] = -centroid
 
                 # Your existing rotation code here
-                mat_rotate = np.identity(4)  # Make it 4x4 for homogeneous coordinates
                 axis = rotate_axes[dim]
 
                 theta = self.random_state.normal(0, rotate_sigmas[dim])
 
-                mat_rotate[axis[1],axis[1]] = math.cos(math.radians(theta))
-                mat_rotate[axis[1],axis[0]] = -math.sin(math.radians(theta))
-                mat_rotate[axis[0],axis[1]] = math.sin(math.radians(theta))
-                mat_rotate[axis[0],axis[0]] = math.cos(math.radians(theta))
+                mat_rotate_axis = np.identity(4)  # Make it 4x4 for homogeneous coordinates
+
+
+                mat_rotate_axis[axis[1],axis[1]] = math.cos(math.radians(theta))
+                mat_rotate_axis[axis[1],axis[0]] = -math.sin(math.radians(theta))
+                mat_rotate_axis[axis[0],axis[1]] = math.sin(math.radians(theta))
+                mat_rotate_axis[axis[0],axis[0]] = math.cos(math.radians(theta))
 
                 translate_back = np.identity(4)
                 translate_back[:3, 3] = centroid
 
-                combined_transform = np.dot(np.dot(translate_back, mat_rotate), translate_to_origin)
+                combined_transform = np.dot(np.dot(translate_back, mat_rotate_axis), translate_to_origin)
 
-                mat_rotate = combined_transform[:3, :3]
+                mat_rotate = np.dot(mat_rotate, combined_transform)
 
-                offset += combined_transform[:3, 3]
-
+        offset += mat_rotate[:3, 3]
+        mat_rotate = mat_rotate[:3, :3]
 
         mat = np.dot(np.dot(mat_rotate, mat_scale), mat_shear)
         if self.cval is None:
