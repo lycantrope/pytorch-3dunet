@@ -233,7 +233,7 @@ class RandomITKDeformation:
         Order is shear, then scale, then rotation, then B-Spline."""
     def __init__(self, random_state, sigma_xy_shear=0.1, sigma_zstack_shear=0.1, sigma_zwarp_shear=0.1, sigma_scale_xy=0.1, sigma_scale_z=0.1, sigma_xy_rotate=15, sigma_z_rotate=5,
             shear_exec_prob=0.2, rotate_exec_prob=0.2, scale_exec_prob=0.2, translate_exec_prob=0.4, translate_x=50, translate_y=20, translate_z=10, mode='constant', order=1, cval=None,
-            bspline_exec_prob=0.2, interpolator='linear', spacing=50, sigma=10, **kwargs):
+            bspline_exec_prob=0.2, interpolator='linear', bspline_order=2, bspline_ctrl_points_x=3, bspline_bend_lim=0.35, bspline_sigma=5, **kwargs):
         self.random_state = random_state
         self.sigma_xy_shear = sigma_xy_shear
         self.sigma_zstack_shear = sigma_zstack_shear
@@ -252,7 +252,13 @@ class RandomITKDeformation:
         self.translate_exec_prob = translate_exec_prob
         self.bspline_exec_prob = bspline_exec_prob
         self.spacing = spacing
-        self.sigma = sigma
+
+        self.bspline_order = bspline_order
+        self.bspline_ctrl_points_x = bspline_ctrl_points_x
+        self.bspline_bend_lim = bspline_bend_lim
+        self.bspline_sigma = bspline_sigma
+
+        assert self.bspline_order == 2, "ERROR: only B-Spline order 2 is supported."
         if interpolator == 'bspline':
             self.interpolator = sitk.sitkBSpline
         elif interpolator == 'linear':
@@ -323,10 +329,69 @@ class RandomITKDeformation:
         raw_img = sitk.GetImageFromArray(m)
         t = aff_tfm
         if self.random_state.uniform() < self.bspline_exec_prob:
-            bsp_grid_size = [math.floor(m.shape[2]/self.spacing), math.floor(m.shape[1]/self.spacing), math.floor(m.shape[0]/self.spacing)]
-            bspline_tfm = sitk.BSplineTransformInitializer(raw_img, bsp_grid_size, order=3)
+            n_ctrl_points_x = self.bspline_ctrl_points_x
+            bspline_order = self.bspline_order
+            sigma = self.bspline_sigma
+            bsp_grid_size = [n_ctrl_points_x, 1, 1]
+            bspline_tfm = sitk.BSplineTransformInitializer(raw_img, bsp_grid_size, order=bspline_order)
             params = np.asarray(bspline_tfm.GetParameters(), dtype=np.float64)
-            params = params + self.random_state.randn(params.shape[0]) * self.sigma
+
+            x_params = params[0:len(params)//3]  # Assuming the parameters are ordered zyx
+            y_params = params[len(params)//3:2*len(params)//3]
+
+            dist_x = m.shape[2] / (bspline_order + 1)
+
+            for i in range(n_ctrl_points_x + bspline_order):
+                y_params[i::n_ctrl_points_x + bspline_order] = random_state.rand() * 2 * dist_x * self.bspline_bend_lim - dist_x * self.bspline_bend_lim
+
+            dists_y = np.zeros(n_ctrl_points_x + bspline_order - 1)
+            thetas_y = np.zeros(n_ctrl_points_x + bspline_order - 1)
+            for i in range(1, n_ctrl_points_x + bspline_order):
+                dists_y[i-1] = y_params[i] - y_params[i-1]    
+                thetas_y[i-1] = np.arctan2(dists_y[i-1], dist_x)
+
+            max_y_dist = mNeptune.shape[1] / (bspline_order - 1)
+
+            tot_displacement = np.sqrt(2) * max_y_dist * np.sqrt(1 - np.cos(thetas_y))
+            x_displacement = tot_displacement * np.cos(thetas_y / 2)
+            y_displacement = tot_displacement * np.sin(thetas_y / 2)
+
+            # Initialize a variable to keep track of the cumulative adjustment in x
+            cumulative_x_adjustment = 0
+
+            # Adjust the x-coordinates of the control points considering the cumulative effect
+            for i in range(1, n_ctrl_points_x + bspline_order):
+                # Calculate the required x-distance to maintain the original distance between control points
+                required_x_dist = dist_x - np.sqrt(dist_x**2 - dists_y[i-1]**2)
+
+                # Calculate the adjustment needed for this control point
+                x_adjustment = required_x_dist
+
+                # Update the cumulative adjustment
+                cumulative_x_adjustment += x_adjustment
+
+                # Apply the cumulative adjustment to the current control point
+                if i < n_ctrl_points_x + bspline_order:
+                    x_params[i::n_ctrl_points_x + bspline_order] += cumulative_x_adjustment
+
+
+            factor = np.linspace(-1,1,bspline_order + 1)
+            for i in range(bspline_order + 1):
+                for j in range(bspline_order + 1):
+                    start_index = j * (n_ctrl_points_x + bspline_order) * (bspline_order + 1) + 1 + i * (n_ctrl_points_x + bspline_order)  # Start of the larger group
+                    end_index = start_index + (n_ctrl_points_x + bspline_order) - 1 # End of the middle smaller group (5 elements)
+
+                    print(start_index)
+                    # Modify the elements in this range
+                    x_params[start_index:end_index] += x_displacement * factor[i]
+                    y_params[start_index:end_index] += y_displacement * factor[i]
+
+
+            x_params -= np.mean(x_params)
+            y_params -= np.mean(y_params)
+
+            params += random_state.randn(params.shape[0]) * sigma
+
             bspline_tfm.SetParameters(tuple(params))
             t = sitk.CompositeTransform(3)
             t.AddTransform(aff_tfm)
