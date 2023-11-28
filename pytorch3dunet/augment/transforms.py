@@ -444,6 +444,55 @@ class RandomITKDeformation:
         else:
             raise ValueError("Input should be either 3D or 4D.")
 
+class GradualGaussianBlur:
+    """
+    Apply Gaussian blur to the image with a spatial gradient across the depth dimension.
+    Blur intensity varies from 'blur_start' to 'blur_end'.
+    """
+    def __init__(self, random_state, max_blur_start=2.0, max_blur_end=2.0, num_blurs=5, execution_probability=0.1):
+        self.random_state = random_state
+        self.max_blur_start = max_blur_start
+        self.max_blur_end = max_blur_end
+        self.num_blurs = num_blurs
+        assert self.num_blurs > 1, "Number of blurs must be > 1."
+        self.execution_probability = execution_probability
+
+    def __call__(self, m):
+        if self.random_state.uniform() < self.execution_probability:
+            return self.apply_gradual_blur(m)
+        return m
+
+    def apply_gradual_blur(self, data):
+        if data.ndim != 4:  # Check if the input is 4D (CxDxHxW)
+            raise ValueError("Input must be 4D (CxDxHxW).")
+
+        assert self.num_blurs <= data.shape[1], "Number of blurs must be <= depth of the image."
+        blurred_images = []
+        blur_start = self.random_state.uniform(0, self.max_blur_start)
+        blur_end = self.random_state.uniform(0, self.max_blur_end)
+        print(blur_start)
+        print(blur_end)
+        sigma_values = np.linspace(blur_start, blur_end, self.num_blurs)
+        for sigma in sigma_values:
+            blurred_image = gaussian_filter(data, sigma=[0, sigma, sigma, sigma])
+            blurred_images.append(blurred_image)
+
+        return self.weighted_average(blurred_images, data.shape[1])
+
+    def weighted_average(self, blurred_images, depth):
+        new_image = np.zeros_like(blurred_images[0])
+        depth_indices = np.linspace(0, depth, len(blurred_images))
+
+        curr_idx = 1
+
+        for d in range(depth):
+            if d > depth_indices[curr_idx]:
+                curr_idx += 1
+            weight = (depth_indices[curr_idx] - d) / (depth_indices[curr_idx] - depth_indices[curr_idx - 1])
+            new_image[:, d, :, :] = blurred_images[curr_idx][:, d, :, :] * (1 - weight) + blurred_images[curr_idx - 1][:, d, :, :] * weight
+
+        return new_image
+
 
 class BSplineDeformation:
     """ Apply B-Spline transformations to 3D patches. """
