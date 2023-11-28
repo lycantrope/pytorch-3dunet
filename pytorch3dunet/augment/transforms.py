@@ -449,7 +449,7 @@ class GradualGaussianBlur:
     Apply Gaussian blur to the image with a spatial gradient across the depth dimension.
     Blur intensity varies from 'blur_start' to 'blur_end'.
     """
-    def __init__(self, random_state, max_blur_start=2.0, max_blur_end=2.0, num_blurs=5, execution_probability=0.1):
+    def __init__(self, random_state, max_blur_start=2.0, max_blur_end=2.0, num_blurs=5, execution_probability=0.1, **kwargs):
         self.random_state = random_state
         self.max_blur_start = max_blur_start
         self.max_blur_end = max_blur_end
