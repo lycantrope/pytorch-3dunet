@@ -470,8 +470,6 @@ class GradualGaussianBlur:
         blurred_images = []
         blur_start = self.random_state.uniform(0, self.max_blur_start)
         blur_end = self.random_state.uniform(0, self.max_blur_end)
-        print(blur_start)
-        print(blur_end)
         sigma_values = np.linspace(blur_start, blur_end, self.num_blurs)
         for sigma in sigma_values:
             blurred_image = gaussian_filter(data, sigma=[0, sigma, sigma, sigma])
