@@ -214,8 +214,8 @@ class UNet3DTrainer:
                 if self.h5_dir != "":
                     with h5py.File(self.h5_dir + "/iter_" + str(self.num_iterations) + ".h5", "w") as f:
                         r = f.create_dataset("raw", t[0].shape)
-                        l = f.create_dataset("label", t[0].shape)
-                        w = f.create_dataset("weight", t[0].shape)
+                        l = f.create_dataset("label", t[1].shape)
+                        w = f.create_dataset("weight", t[2].shape)
                         for i in range(input.shape[0]):
                             r[i] = t[0][i]
                             l[i] = t[1][i]

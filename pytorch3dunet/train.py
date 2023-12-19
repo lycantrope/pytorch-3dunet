@@ -1,4 +1,5 @@
 import importlib
+import os
 
 import torch
 import torch.nn as nn
@@ -28,7 +29,7 @@ def _create_trainer(config, model, optimizer, lr_scheduler, loss_criterion, eval
     # get tensorboard formatter
     tensorboard_formatter = get_tensorboard_formatter(trainer_config.get('tensorboard_formatter', None))
 
-    if resume is not None:
+    if resume is not None and os.path.exists(resume):
         # continue training from a given checkpoint
         return UNet3DTrainer.from_checkpoint(resume, model,
                                              optimizer, lr_scheduler, loss_criterion,
@@ -41,7 +42,7 @@ def _create_trainer(config, model, optimizer, lr_scheduler, loss_criterion, eval
                                              max_num_iterations=trainer_config['iters'],
                                              validate_after_iters=trainer_config['validate_after_iters'],
                                              log_after_iters=trainer_config['log_after_iters'],
-                                             h5_dir=trainer_config['h5_dir'],
+                                             h5_dir=trainer_config.get('h5_dir', ""),
                                              checkpoint_after_iters=trainer_config['checkpoint_after_iters'],
                                              eval_score_higher_is_better=trainer_config['eval_score_higher_is_better'],
                                              tensorboard_formatter=tensorboard_formatter,
@@ -54,7 +55,7 @@ def _create_trainer(config, model, optimizer, lr_scheduler, loss_criterion, eval
                              max_num_iterations=trainer_config['iters'],
                              validate_after_iters=trainer_config['validate_after_iters'],
                              log_after_iters=trainer_config['log_after_iters'],
-                             h5_dir=trainer_config['h5_dir'],
+                             h5_dir=trainer_config.get('h5_dir', ""),
                              checkpoint_after_iters=trainer_config['checkpoint_after_iters'],
                              eval_score_higher_is_better=trainer_config['eval_score_higher_is_better'],
                              tensorboard_formatter=tensorboard_formatter,

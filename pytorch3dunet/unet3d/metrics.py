@@ -129,8 +129,6 @@ class PixelWiseMeanIoU:
         :return: intersection over union averaged over all channels
         """
         assert input.dim() == 5
-        assert target.dim() == 4
-        assert weights.dim() == 4
 
         n_classes = input.size()[1]
 
@@ -140,7 +138,10 @@ class PixelWiseMeanIoU:
         assert input.size() == target.size()
 
         per_batch_iou = []
-        for _input, _target in zip(input, target):
+        for batch in range(input.shape[0]): 
+            _input = input[batch]
+            _target = target[batch]
+            _weight = weights[batch]
             binary_prediction = self._binarize_predictions(_input, n_classes)
 
             if self.ignore_index is not None:
@@ -157,7 +158,13 @@ class PixelWiseMeanIoU:
             for c in range(n_classes):
                 if c in self.skip_channels:
                     continue
-                per_channel_iou.append(self._jaccard_index(binary_prediction[c], _target[c], weights[0], self.weight_equal))
+                # ignore channels with no true positives
+                if torch.sum(_target[c]) == 0:
+                    continue
+                if weights.dim() == 4:
+                    per_channel_iou.append(self._jaccard_index(binary_prediction[c], _target[c], _weight, self.weight_equal))
+                elif weights.dim() == 5:
+                    per_channel_iou.append(self._jaccard_index(binary_prediction[c], _target[c], _weight[c], self.weight_equal))
             
             assert per_channel_iou, "All channels were ignored from the computation"
             mean_iou = torch.mean(torch.tensor(per_channel_iou))

@@ -52,20 +52,24 @@ class RandomRotate90:
     IMPORTANT: assumes DHW axis order (that's why rotation is performed across (1,2) axis)
     """
 
-    def __init__(self, random_state, axes=[(1,2)], **kwargs):
+    def __init__(self, random_state, axes=[(1,2)], force_180=False, **kwargs):
         self.random_state = random_state
         if axes is None:
             axes = [(1, 0), (2, 1), (2, 0)]
         else:
             assert isinstance(axes, list) and len(axes) > 0
         self.axes = axes
+        self.force_180 = force_180
 
     def __call__(self, m):
         axis = self.axes[self.random_state.randint(len(self.axes))]
         assert m.ndim in [3, 4], 'Supports only 3D (DxHxW) or 4D (CxDxHxW) images'
 
         # pick number of rotations at random
-        k = self.random_state.randint(0, 4)
+        if self.force_180:
+            k = 2 * self.random_state.randint(0, 2)
+        else:
+            k = self.random_state.randint(0, 4)
 
         # rotate k times around a given plane
         if m.ndim == 3:
@@ -75,6 +79,7 @@ class RandomRotate90:
             m = np.stack(channels, axis=0)
 
         return m
+        
 
 
 class RandomRotate:
@@ -257,8 +262,11 @@ class RandomITKDeformation:
         else:
             raise NotImplementedError("ERROR: interpolator " + str(interpolator) + " not implemented.")
 
+    def _apply_transformation(self, m, restore_rng_state=False):
+        # If restore_rng_state is True, save the current state of the random number generator
+        if restore_rng_state:
+            rng_state = self.random_state.get_state()
 
-    def __call__(self, m):
         mat_shear = np.identity(3)
         # SimpleITK pararmeters are in (x,y,z) order instead of (z,y,x) order
         if self.random_state.uniform() < self.shear_exec_prob:
@@ -314,7 +322,7 @@ class RandomITKDeformation:
             params = np.asarray(bspline_tfm.GetParameters(), dtype=np.float64)
             params = params + self.random_state.randn(params.shape[0]) * self.sigma
             bspline_tfm.SetParameters(tuple(params))
-            t = sitk.Transform(3, sitk.sitkComposite)
+            t = sitk.CompositeTransform(3)
             t.AddTransform(aff_tfm)
             t.AddTransform(bspline_tfm)
 
@@ -324,7 +332,25 @@ class RandomITKDeformation:
         resampler.SetDefaultPixelValue(cval)
         resampler.SetTransform(t)
         result = np.array(sitk.GetArrayFromImage(resampler.Execute(raw_img)))
+
+        # If restore_rng_state is True, restore the saved state of the random number generator
+        if restore_rng_state:
+            self.random_state.set_state(rng_state)
         return result
+
+    def __call__(self, m):
+        # Check if the input image is 3D or 4D
+        if m.ndim == 3:
+            return self._apply_transformation(m)
+        elif m.ndim == 4:
+            # Apply the transformation independently to each channel
+            # For all channels except the last one, restore the RNG state after processing
+            channels = [self._apply_transformation(m[channel_idx], restore_rng_state=(channel_idx != m.shape[0]-1))
+                        for channel_idx in range(m.shape[0])]
+
+            return np.stack(channels)
+        else:
+            raise ValueError("Input should be either 3D or 4D.")
 
 
 class BSplineDeformation:

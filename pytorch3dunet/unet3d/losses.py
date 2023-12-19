@@ -213,8 +213,9 @@ class PixelWiseCrossEntropyLoss(nn.Module):
         # standard CrossEntropyLoss requires the target to be (NxDxHxW), so we need to expand it to (NxCxDxHxW)
         target = expand_as_one_hot(target, C=input.size()[1], ignore_index=self.ignore_index)
         # expand weights
-        weights = weights.unsqueeze(0)
-        weights = weights.expand_as(input)
+        if weights.size() != input.size():
+            weights = weights.unsqueeze(0)
+            weights = weights.expand_as(input)
 
         # create default class_weights if None
         if self.class_weights is None:

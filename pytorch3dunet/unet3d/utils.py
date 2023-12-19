@@ -350,6 +350,11 @@ def expand_as_one_hot(input, C, ignore_index=None):
     :param ignore_index: ignore index to be kept during the expansion
     :return: 5D output image (NxCxDxHxW)
     """
+    if input.dim() == 5:
+        return input
+
+    print(input.dim())
+    
     assert input.dim() == 4
 
     # expand the input tensor to Nx1xDxHxW before scattering
