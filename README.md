@@ -13,6 +13,10 @@ PyTorch implementation 3D U-Net and its variants:
 
 The code allows for training the U-Net for both: **semantic segmentation** (binary and multi-class) and **regression** problems (e.g. de-noising, learning deconvolutions).
 
+## Updated weights
+
+The latest weights, with NeuroPAL training data, are available here [https://www.dropbox.com/scl/fo/zn530f0lnw9p8wqssqfwq/h?rlkey=01izs13oa9ef4hdw9ielhaqcx&dl=0]
+
 ## 2D U-Net
 Training the standard 2D U-Net is also possible, see [train_config_2d](resources/train_config_2d_boundary.yml) for example configuration. Just make sure to keep the singleton z-dimension in your H5 dataset (i.e. `(1, Y, X)` instead of `(Y, X)`) , cause data loading / data augmentation requires tensors of rank 3 always.
 
