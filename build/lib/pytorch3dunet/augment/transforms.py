@@ -196,12 +196,10 @@ class RandomAffineTransform:
 
         return m
 
-
-
-
 class RandomContrast:
     """
     Adjust contrast by scaling each voxel to `mean + alpha * (v - mean)`.
+    For 4D input (CxDxHxW), it applies the adjustment independently for each channel.
     """
 
     def __init__(self, random_state, alpha=(0.5, 1.5), mean=0.0, execution_probability=0.1, **kwargs):
@@ -214,45 +212,55 @@ class RandomContrast:
 
     def __call__(self, m):
         if self.random_state.uniform() < self.execution_probability:
-            if self.use_data_mean:
-                mu = np.mean(m)
-            else:
-                mu = self.mean
-            alpha = self.random_state.uniform(self.alpha[0], self.alpha[1])
-            result = mu + alpha * (m - mu)
-            return np.clip(result, -1, 1)
-
+            if m.ndim == 3:  # For 3D data
+                return self.adjust_contrast(m)
+            elif m.ndim == 4:  # For 4D data
+                return np.array([self.adjust_contrast(channel) for channel in m])
         return m
+
+    def adjust_contrast(self, data):
+        if self.use_data_mean:
+            mu = np.mean(data)
+        else:
+            mu = self.mean
+        alpha = self.random_state.uniform(self.alpha[0], self.alpha[1])
+        result = mu + alpha * (data - mu)
+        return np.clip(result, -1, 1)
+
 
 class RandomITKDeformation:
     """ Implements a random ITK transform. Includes shear, scaling, rotation, translation, and B-Spline.
-        Order is shear, then scale, then rotation, then B-Spline."""
-    def __init__(self, random_state, sigma_xy_shear=0.1, sigma_zstack_shear=0.1, sigma_zwarp_shear=0.1, sigma_scale_xy=0.1, sigma_scale_z=0.1, sigma_rotate=15, axes=None,
-            shear_exec_prob=0.2, rotate_exec_prob=0.2, scale_exec_prob=0.2, translate_exec_prob=0.4, translate_x=50, translate_y=20, translate_z=10, mode='constant', order=1, cval=None,
-            bspline_exec_prob=0.2, interpolator='linear', spacing=50, sigma=10, **kwargs):
-        if axes is None:
-            axes = [(1, 0), (2, 1), (2, 0)]
-        else:
-            assert isinstance(axes, list) and len(axes) > 0
+        Order is B-Spline, then shear, then scale, then rotation."""
+    def __init__(self, random_state, sigma_xy_shear=0.1, sigma_zstack_shear=0.1, sigma_zwarp_shear=0.1, sigma_scale_xy=0.1, sigma_scale_z=0.1, sigma_xy_rotate=15, sigma_xz_rotate=1, sigma_yz_rotate=5,
+            shear_exec_prob=0.2, xy_rotate_exec_prob=0.2, xz_rotate_exec_prob=0.2, yz_rotate_exec_prob=0.2, scale_exec_prob=0.2, translate_exec_prob=0.4, translate_x=50, translate_y=20, translate_z=10, mode='constant', order=1, cval=None,
+            bspline_exec_prob=0.2, interpolator='linear', bspline_order=2, bspline_ctrl_points_x=3, bspline_bend_lim=0.35, bspline_sigma=5, **kwargs):
         self.random_state = random_state
         self.sigma_xy_shear = sigma_xy_shear
         self.sigma_zstack_shear = sigma_zstack_shear
         self.sigma_zwarp_shear = sigma_zwarp_shear
         self.sigma_scale_xy = sigma_scale_xy
         self.sigma_scale_z = sigma_scale_z
-        self.sigma_rotate = sigma_rotate
+        self.sigma_xy_rotate = sigma_xy_rotate
+        self.sigma_xz_rotate = sigma_xz_rotate
+        self.sigma_yz_rotate = sigma_yz_rotate
         self.shear_exec_prob = shear_exec_prob
-        self.rotate_exec_prob = rotate_exec_prob
+        self.xy_rotate_exec_prob = xy_rotate_exec_prob
+        self.xz_rotate_exec_prob = xz_rotate_exec_prob
+        self.yz_rotate_exec_prob = yz_rotate_exec_prob
         self.scale_exec_prob = scale_exec_prob
         self.cval = cval
         self.translate_x = translate_x
         self.translate_y = translate_y
         self.translate_z = translate_z
         self.translate_exec_prob = translate_exec_prob
+
         self.bspline_exec_prob = bspline_exec_prob
-        self.axes = axes
-        self.spacing = spacing
-        self.sigma = sigma
+        self.bspline_order = bspline_order
+        self.bspline_ctrl_points_x = bspline_ctrl_points_x
+        self.bspline_bend_lim = bspline_bend_lim
+        self.bspline_sigma = bspline_sigma
+
+        assert self.bspline_order == 2, "ERROR: only B-Spline order 2 is supported."
         if interpolator == 'bspline':
             self.interpolator = sitk.sitkBSpline
         elif interpolator == 'linear':
@@ -289,14 +297,43 @@ class RandomITKDeformation:
             if self.sigma_scale_z > 0:
                 mat_scale[2,2] = self.random_state.normal(1,self.sigma_scale_z)
 
-        mat_rotate = np.identity(3)
-        if self.random_state.uniform() < self.rotate_exec_prob:
-            theta = self.random_state.normal(0, self.sigma_rotate)
-            axis = self.axes[self.random_state.randint(len(self.axes))]
-            mat_rotate[axis[1],axis[1]] = math.cos(math.radians(theta))
-            mat_rotate[axis[1],axis[0]] = -math.sin(math.radians(theta))
-            mat_rotate[axis[0],axis[1]] = math.sin(math.radians(theta))
-            mat_rotate[axis[0],axis[0]] = math.cos(math.radians(theta))
+        offset = [0,0,0]
+
+        rotate_probs = [self.xy_rotate_exec_prob, self.xz_rotate_exec_prob, self.yz_rotate_exec_prob]
+        rotate_axes = [(0,1), (0,2), (1,2)]
+        rotate_sigmas = [self.sigma_xy_rotate, self.sigma_xz_rotate, self.sigma_yz_rotate]
+        centroid = np.array([m.shape[2] / 2, m.shape[1] / 2, m.shape[0] / 2])
+
+        mat_rotate = np.identity(4)  # Make it 4x4 for homogeneous coordinates
+
+
+        for dim in range(3):
+            if self.random_state.uniform() < rotate_probs[dim]:
+                # Step 1: Translate to move centroid to origin
+                translate_to_origin = np.identity(4)
+                translate_to_origin[:3, 3] = -centroid
+
+                # Your existing rotation code here
+                axis = rotate_axes[dim]
+
+                theta = self.random_state.normal(0, rotate_sigmas[dim])
+
+                mat_rotate_axis = np.identity(4)  # Make it 4x4 for homogeneous coordinates
+
+                mat_rotate_axis[axis[1],axis[1]] = math.cos(math.radians(theta))
+                mat_rotate_axis[axis[1],axis[0]] = -math.sin(math.radians(theta))
+                mat_rotate_axis[axis[0],axis[1]] = math.sin(math.radians(theta))
+                mat_rotate_axis[axis[0],axis[0]] = math.cos(math.radians(theta))
+
+                translate_back = np.identity(4)
+                translate_back[:3, 3] = centroid
+
+                combined_transform = np.dot(np.dot(translate_back, mat_rotate_axis), translate_to_origin)
+
+                mat_rotate = np.dot(combined_transform, mat_rotate)
+
+        offset += mat_rotate[:3, 3]
+        mat_rotate = mat_rotate[:3, :3]
 
         mat = np.dot(np.dot(mat_rotate, mat_scale), mat_shear)
         if self.cval is None:
@@ -304,27 +341,82 @@ class RandomITKDeformation:
         else:
             cval = self.cval
 
-        offset = [0,0,0]
         if self.random_state.uniform() < self.translate_exec_prob:
-            offset[2] = self.random_state.randint(-self.translate_z, self.translate_z)
-            offset[1] = self.random_state.randint(-self.translate_y, self.translate_y)
-            offset[0] = self.random_state.randint(-self.translate_x, self.translate_x)
-
-        mat = np.column_stack([mat, offset])
+            offset[2] += self.random_state.randint(-self.translate_z, self.translate_z)
+            offset[1] += self.random_state.randint(-self.translate_y, self.translate_y)
+            offset[0] += self.random_state.randint(-self.translate_x, self.translate_x)
 
         aff_tfm = sitk.AffineTransform(3)
-        aff_tfm.SetParameters(mat.T.flatten())
+        aff_tfm.SetMatrix(mat.flatten())
+        aff_tfm.SetTranslation(offset)
         raw_img = sitk.GetImageFromArray(m)
         t = aff_tfm
         if self.random_state.uniform() < self.bspline_exec_prob:
-            bsp_grid_size = [math.floor(m.shape[2]/self.spacing), math.floor(m.shape[1]/self.spacing), math.floor(m.shape[0]/self.spacing)]
-            bspline_tfm = sitk.BSplineTransformInitializer(raw_img, bsp_grid_size, order=3)
+            n_ctrl_points_x = self.bspline_ctrl_points_x
+            bspline_order = self.bspline_order
+            sigma = self.bspline_sigma
+            bsp_grid_size = [n_ctrl_points_x, 1, 1]
+            bspline_tfm = sitk.BSplineTransformInitializer(raw_img, bsp_grid_size, order=bspline_order)
             params = np.asarray(bspline_tfm.GetParameters(), dtype=np.float64)
-            params = params + self.random_state.randn(params.shape[0]) * self.sigma
+
+            x_params = params[0:len(params)//3]  # Assuming the parameters are ordered zyx
+            y_params = params[len(params)//3:2*len(params)//3]
+
+            dist_x = m.shape[2] / (bspline_order + 1)
+
+            for i in range(n_ctrl_points_x + bspline_order):
+                y_params[i::n_ctrl_points_x + bspline_order] = self.random_state.rand() * 2 * dist_x * self.bspline_bend_lim - dist_x * self.bspline_bend_lim
+
+            dists_y = np.zeros(n_ctrl_points_x + bspline_order - 1)
+            thetas_y = np.zeros(n_ctrl_points_x + bspline_order - 1)
+            for i in range(1, n_ctrl_points_x + bspline_order):
+                dists_y[i-1] = y_params[i] - y_params[i-1]    
+                thetas_y[i-1] = np.arctan2(dists_y[i-1], dist_x)
+
+            max_y_dist = m.shape[1] / (bspline_order - 1)
+
+            tot_displacement = np.sqrt(2) * max_y_dist * np.sqrt(1 - np.cos(thetas_y))
+            x_displacement = tot_displacement * np.cos(thetas_y / 2)
+            y_displacement = tot_displacement * np.sin(thetas_y / 2)
+
+            # Initialize a variable to keep track of the cumulative adjustment in x
+            cumulative_x_adjustment = 0
+
+            # Adjust the x-coordinates of the control points considering the cumulative effect
+            for i in range(1, n_ctrl_points_x + bspline_order):
+                # Calculate the required x-distance to maintain the original distance between control points
+                required_x_dist = dist_x - np.sqrt(dist_x**2 - dists_y[i-1]**2)
+
+                # Calculate the adjustment needed for this control point
+                x_adjustment = required_x_dist
+
+                # Update the cumulative adjustment
+                cumulative_x_adjustment += x_adjustment
+
+                # Apply the cumulative adjustment to the current control point
+                if i < n_ctrl_points_x + bspline_order:
+                    x_params[i::n_ctrl_points_x + bspline_order] += cumulative_x_adjustment
+
+
+            factor = np.linspace(-1,1,bspline_order + 1)
+            for i in range(bspline_order + 1):
+                for j in range(bspline_order + 1):
+                    start_index = j * (n_ctrl_points_x + bspline_order) * (bspline_order + 1) + 1 + i * (n_ctrl_points_x + bspline_order)  # Start of the larger group
+                    end_index = start_index + (n_ctrl_points_x + bspline_order) - 1 # End of the middle smaller group (5 elements)
+                    # Modify the elements in this range
+                    x_params[start_index:end_index] += x_displacement * factor[i]
+                    y_params[start_index:end_index] += y_displacement * factor[i]
+
+
+            x_params -= np.mean(x_params)
+            y_params -= np.mean(y_params)
+
+            params += self.random_state.randn(params.shape[0]) * sigma
+
             bspline_tfm.SetParameters(tuple(params))
             t = sitk.CompositeTransform(3)
-            t.AddTransform(aff_tfm)
             t.AddTransform(bspline_tfm)
+            t.AddTransform(aff_tfm)
 
         resampler = sitk.ResampleImageFilter()
         resampler.SetReferenceImage(raw_img)
@@ -351,6 +443,53 @@ class RandomITKDeformation:
             return np.stack(channels)
         else:
             raise ValueError("Input should be either 3D or 4D.")
+
+class GradualGaussianBlur:
+    """
+    Apply Gaussian blur to the image with a spatial gradient across the depth dimension.
+    Blur intensity varies from 'blur_start' to 'blur_end'.
+    """
+    def __init__(self, random_state, max_blur_start=2.0, max_blur_end=2.0, num_blurs=5, execution_probability=0.1, **kwargs):
+        self.random_state = random_state
+        self.max_blur_start = max_blur_start
+        self.max_blur_end = max_blur_end
+        self.num_blurs = num_blurs
+        assert self.num_blurs > 1, "Number of blurs must be > 1."
+        self.execution_probability = execution_probability
+
+    def __call__(self, m):
+        if self.random_state.uniform() < self.execution_probability:
+            return self.apply_gradual_blur(m)
+        return m
+
+    def apply_gradual_blur(self, data):
+        if data.ndim != 4:  # Check if the input is 4D (CxDxHxW)
+            raise ValueError("Input must be 4D (CxDxHxW).")
+
+        assert self.num_blurs <= data.shape[1], "Number of blurs must be <= depth of the image."
+        blurred_images = []
+        blur_start = self.random_state.uniform(0, self.max_blur_start)
+        blur_end = self.random_state.uniform(0, self.max_blur_end)
+        sigma_values = np.linspace(blur_start, blur_end, self.num_blurs)
+        for sigma in sigma_values:
+            blurred_image = gaussian_filter(data, sigma=[0, sigma, sigma, sigma])
+            blurred_images.append(blurred_image)
+
+        return self.weighted_average(blurred_images, data.shape[1])
+
+    def weighted_average(self, blurred_images, depth):
+        new_image = np.zeros_like(blurred_images[0])
+        depth_indices = np.linspace(0, depth, len(blurred_images))
+
+        curr_idx = 1
+
+        for d in range(depth):
+            if d > depth_indices[curr_idx]:
+                curr_idx += 1
+            weight = (depth_indices[curr_idx] - d) / (depth_indices[curr_idx] - depth_indices[curr_idx - 1])
+            new_image[:, d, :, :] = blurred_images[curr_idx][:, d, :, :] * (1 - weight) + blurred_images[curr_idx - 1][:, d, :, :] * weight
+
+        return new_image
 
 
 class BSplineDeformation:
