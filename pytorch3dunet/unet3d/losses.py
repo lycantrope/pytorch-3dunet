@@ -214,7 +214,7 @@ class PixelWiseCrossEntropyLoss(nn.Module):
         target = expand_as_one_hot(target, C=input.size()[1], ignore_index=self.ignore_index)
         # expand weights
         if weights.size() != input.size():
-            weights = weights.unsqueeze(0)
+            weights = weights.unsqueeze(1)
             weights = weights.expand_as(input)
 
         # create default class_weights if None
