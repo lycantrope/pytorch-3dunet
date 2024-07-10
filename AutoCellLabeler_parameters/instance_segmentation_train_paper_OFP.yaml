@@ -1,0 +1,289 @@
+# use a fixed random seed to guarantee that when you run the code twice you will get the same outcome
+manual_seed: 0
+# model configuration
+model:
+  # model class, e.g. UNet3D, ResidualUNet3D
+  name: UNet3D
+  # number of input channels to the model
+  in_channels: 2
+  # number of output channels
+  out_channels: 185
+  # determines the order of operators in a single layer (gcr - GroupNorm+Conv3d+ReLU)
+  layer_order: gcr
+  # feature maps scale factor
+  f_maps: 64
+  # number of groups in the groupnorm
+  num_groups: 16
+  # apply element-wise nn.Sigmoid after the final 1x1 convolution, otherwise apply nn.Softmax
+  final_sigmoid: false
+  # if True applies the final normalization layer (sigmoid or softmax), otherwise the networks returns the output from the final convolution layer; use False for regression problems, e.g. de-noising
+  is_segmentation: true
+# trainer configuration
+trainer:
+  # number of patches per batch
+  batch_size: 1
+  # path to the checkpoint directory
+  checkpoint_dir: /opt/checkpoints
+  # path to latest checkpoint; if provided the training will be resumed from that checkpoint
+  resume: /opt/checkpoints/last_checkpoint.pytorch
+  # how many iterations between validations
+  validate_after_iters: 81
+  # how many iterations between tensorboard logging
+  log_after_iters: 81
+  # how many iterations between checkpoint outputting
+  checkpoint_after_iters: 81
+  # max number of epochs
+  epochs: 300 #100000
+  # max number of iterations
+  iters: 150000 #1000000
+  # model with higher eval score is considered better
+  eval_score_higher_is_better: True
+# optimizer configuration
+optimizer:
+  algorithm: Adam
+  # initial learning rate
+  learning_rate: 0.0001 #0.00002 #CHANGE: 0, 1e-9, 1e-8, 1e-7, 1e-6, 1e-5, 1e-4, 1e-3;
+  # weight decay
+  weight_decay: 0 # 0.00002 ###CHANGE: 0, 1e-9, 1e-8, 1e-7, 1e-6, 1e-5, 1e-4, 1e-3; 
+  # weight_decay: 0
+  # momentum (only for SGD)
+  # momentum: 0.99
+# loss function configuration
+loss:
+  # loss function to be used during training
+  name: PixelWiseCrossEntropyLoss
+  # A manual rescaling weight given to each class.
+  weights: null
+  # a target value that is ignored and does not contribute to the input gradient
+  ignore_index: null
+# evaluation metric configuration
+eval_metric:
+  name: PixelWiseMeanIoU
+  # a target label that is ignored during metric evaluation
+  ignore_index: null
+  #skip_channels: [0]
+# learning rate scheduler configuration
+lr_scheduler:
+  # reduce learning rate when evaluation metric plateaus
+  name: ReduceLROnPlateau
+  # use 'max' if eval_score_higher_is_better=True, 'min' otherwise
+  mode: max
+  # factor by which learning rate will be reduced
+  factor: 0.5
+  # number of *validation runs* with no improvement after which learning rate will be reduced
+  patience: 500
+# data loaders configuration
+loaders:
+  # class of the HDF5 dataset, currently StandardHDF5Dataset and LazyHDF5Dataset are supported.
+  # When using LazyHDF5Dataset make sure to set `num_workers = 1`, due to a bug in h5py which corrupts the data
+  # when reading from multiple threads.
+  dataset: StandardHDF5Dataset
+  # batch dimension; if number of GPUs is N > 1, then a batch_size of N * batch_size will automatically be taken for DataParallel
+  batch_size: 1
+  # how many subprocesses to use for data loading
+  num_workers: 64
+  # path to the raw data within the H5
+  raw_internal_path: raw
+  # path to the the label data within the H5
+  label_internal_path: label
+  # path to the pixel-wise weight map withing the H5 if present
+  weight_internal_path: weight
+  # configuration of the train loader
+  train:
+    # absolute paths to the training datasets; if a given path is a directory all H5 files ('*.h5', '*.hdf', '*.hdf5', '*.hd5')
+    # inside this this directory will be included as well (non-recursively)
+    file_paths:
+      - '/opt/data/train_paper_OFP'
+
+    # SliceBuilder configuration, i.e. how to iterate over the input volume patch-by-patch
+    slice_builder:
+      # SliceBuilder class
+      name: PixelWiseWeightedSliceBuilder
+      # train patch size given to the network (adapt to fit in your GPU mem, generally the bigger patch the better)
+      patch_shape: [185, 64, 120, 284]
+      # train stride between patches; not used for this slice builder
+      # Was [4,16,16]
+      stride_shape: null
+      # number of patches to use per training dataset
+      num_patches: 1
+      skip_shape_check: true
+
+    # data transformations/augmentations
+    transformer:
+      raw:
+        # re-scale the values to be in the interval [-1, 1]
+        # use Normalize instead of Standardize because datasets are highly non-Gaussian
+        - name: Normalize
+        # Performs random affine transform, including shear, translation, scaling, and rotation.
+        - name: RandomITKDeformation
+          # rotate
+          xy_rotate_exec_prob: 0.8
+          yz_rotate_exec_prob: 0.8
+          xz_rotate_exec_prob: 0.2
+          sigma_xy_rotate: 15
+          sigma_yz_rotate: 15
+          sigma_xz_rotate: 1
+          # translate
+          translate_exec_prob: 0.6
+          translate_x: 40
+          translate_y: 25
+          translate_z: 7
+          # scale
+          scale_exec_prob: 0.4
+          sigma_scale_xy: 0.1
+          sigma_scale_z: 0.1
+          # shear
+          shear_exec_prob: 0.4
+          sigma_xy_shear: 0.1
+          sigma_zstack_shear: 0.1
+          sigma_zwarp_shear: 0.1
+          # bspline
+          bspline_exec_prob: 0.8
+          bspline_order: 2
+          bspline_ctrl_points_x: 3
+          bspline_bend_lim: 0.4
+          bspline_sigma: 10
+        # rotate an image by 180 degrees around z axis
+        - name: RandomRotate90
+          axes: null
+          force_180: true
+        # # randomly adjust contrast (only works with Normalized data sets, not Standardized)
+        - name: RandomContrast
+          execution_probability: 0.8
+          use_data_mean: True
+          alpha: [0.8, 1.2]
+        - name: GradualGaussianBlur
+          execution_probability: 0.6
+          max_blur_start: 2.0
+          max_blur_end: 2.0
+          num_blurs: 5
+        # # apply additive Gaussian noise
+        - name: AdditiveGaussianNoise
+          execution_probability: 0.8
+          scale: [0.0, 0.05]
+        # # apply additive Poisson noise (hot pixels)
+        - name: AdditivePoissonNoise
+          execution_probability: 0.2
+          lam: [0.0, 0.0001]
+        # convert to torch tensor
+        - name: ToTensor
+          # add additional 'channel' axis when the input data is 3D
+          expand_dims: true
+      label:
+        # Performs random affine transform, including shear, translation, scaling, and rotation.
+        - name: RandomITKDeformation
+          # rotate
+          xy_rotate_exec_prob: 0.8
+          yz_rotate_exec_prob: 0.8
+          xz_rotate_exec_prob: 0.2
+          sigma_xy_rotate: 15
+          sigma_yz_rotate: 15
+          sigma_xz_rotate: 1
+          # translate
+          translate_exec_prob: 0.6
+          translate_x: 40
+          translate_y: 25
+          translate_z: 7
+          # scale
+          scale_exec_prob: 0.4
+          sigma_scale_xy: 0.1
+          sigma_scale_z: 0.1
+          # shear
+          shear_exec_prob: 0.4
+          sigma_xy_shear: 0.1
+          sigma_zstack_shear: 0.1
+          sigma_zwarp_shear: 0.1
+          # bspline
+          bspline_exec_prob: 0.8
+          bspline_order: 2
+          bspline_ctrl_points_x: 3
+          bspline_bend_lim: 0.4
+          bspline_sigma: 10
+          interpolator: nn
+          cval: 0
+        # rotate an image by 180 degrees around z axis
+        - name: RandomRotate90
+          axes: null
+          force_180: true
+        - name: ToTensor
+          # do not expand dims for cross-entropy loss
+          expand_dims: false
+          # cross-entropy loss requires target to be of type 'long'
+          dtype: 'long'
+      weight:
+        # Performs random affine transform, including shear, translation, scaling, and rotation.
+        - name: RandomITKDeformation
+          # rotate
+          xy_rotate_exec_prob: 0.8
+          yz_rotate_exec_prob: 0.8
+          xz_rotate_exec_prob: 0.2
+          sigma_xy_rotate: 15
+          sigma_yz_rotate: 15
+          sigma_xz_rotate: 1
+          # translate
+          translate_exec_prob: 0.6
+          translate_x: 40
+          translate_y: 25
+          translate_z: 7
+          # scale
+          scale_exec_prob: 0.4
+          sigma_scale_xy: 0.1
+          sigma_scale_z: 0.1
+          # shear
+          shear_exec_prob: 0.4
+          sigma_xy_shear: 0.1
+          sigma_zstack_shear: 0.1
+          sigma_zwarp_shear: 0.1
+          # bspline
+          bspline_exec_prob: 0.8
+          bspline_order: 2
+          bspline_ctrl_points_x: 3
+          bspline_bend_lim: 0.4
+          bspline_sigma: 10
+          interpolator: nn
+          cval: 0
+        # rotate an image by 180 degrees around z axis
+        - name: RandomRotate90
+          axes: null
+          force_180: true
+        - name: ToTensor
+          # do not expand dims for cross-entropy loss
+          expand_dims: false
+          # cross-entropy loss requires weight to be of type 'long'
+          dtype: 'long'
+
+  # configuration of the validation loaders
+  val:
+    # paths to the validation datasets; if a given path is a directory all H5 files ('*.h5', '*.hdf', '*.hdf5', '*.hd5')
+    # inside this this directory will be included as well (non-recursively)
+    file_paths:
+      - '/opt/data/val_paper_OFP'
+
+    # SliceBuilder configuration
+    slice_builder:
+      # SliceBuilder class
+      name: PixelWiseWeightedSliceBuilder
+      # validation patch (can be bigger than train patch since there is no backprop)
+      patch_shape: [185, 64, 120, 284]
+      # validation stride; not used for this slice builder
+      stride_shape: null
+      # number of patches to use per validation dataset
+      num_patches: 1
+      skip_shape_check: true
+
+
+    # no data augmentation during validation
+    transformer:
+      raw:
+        - name: Normalize
+        - name: ToTensor
+          expand_dims: true
+      label:
+        - name: ToTensor
+          expand_dims: false
+          dtype: 'int64'
+      weight:
+        - name: ToTensor
+          expand_dims: False
+          dtype: 'int64'
+      
