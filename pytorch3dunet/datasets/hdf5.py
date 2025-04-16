@@ -67,9 +67,12 @@ class AbstractHDF5Dataset(ConfigDataset):
         if weight_internal_path is not None:
             internal_paths.extend(weight_internal_path)
 
-        input_file = self.create_h5_file(file_path, internal_paths)
+        # Default to None if the file did not open properly.
+        self._input_file = None
+        # make sure the file handler is referenced by Dataset
+        self._input_file = self.create_h5_file(file_path, internal_paths)
 
-        self.raws = self.fetch_datasets(input_file, raw_internal_path)
+        self.raws = self.fetch_datasets(self._input_file, raw_internal_path)
 
         # calculate global min, max, mean and std for normalization
         min_value, max_value, mean, std = calculate_stats(self.raws)
@@ -80,11 +83,11 @@ class AbstractHDF5Dataset(ConfigDataset):
 
         if phase != 'test':
             # create label/weight transform only in train/val phase
-            self.labels = self.fetch_datasets(input_file, label_internal_path)
+            self.labels = self.fetch_datasets(self._input_file, label_internal_path)
 
             if weight_internal_path is not None:
                 # look for the weight map in the raw file
-                self.weight_maps = self.fetch_datasets(input_file, weight_internal_path)
+                self.weight_maps = self.fetch_datasets(self._input_file, weight_internal_path)
             else:
                 self.weight_maps = None
 
@@ -119,6 +122,13 @@ class AbstractHDF5Dataset(ConfigDataset):
         self.patch_count = len(self.raw_slices)
         logger.info(f'Number of patches: {self.patch_count}')
 
+    def __del__(self):
+        # Let gabage collector handle the HDF5 file close after the dataset is destroyed
+        if hasattr(self._input_file, "close") and callable(self._input_file.close):
+            self._input_file.close()
+            self._input_file = None
+
+    
     @staticmethod
     def create_h5_file(file_path, internal_paths):
         raise NotImplementedError
@@ -254,11 +264,13 @@ class StandardHDF5Dataset(AbstractHDF5Dataset):
 
     @staticmethod
     def create_h5_file(file_path, internal_paths):
-        return h5py.File(file_path, 'r')
+        # Use latest lib to make sure the multiprocess is supported
+        return h5py.File(file_path, 'r', libver='latest')
 
     @staticmethod
     def fetch_datasets(input_file_h5, internal_paths):
-        return [input_file_h5[internal_path][...] for internal_path in internal_paths]
+        # Remove the [...], since we don't want to read entire dataset at once.
+        return [input_file_h5[internal_path] for internal_path in internal_paths]
 
 
 class LazyHDF5Dataset(AbstractHDF5Dataset):
@@ -313,7 +325,7 @@ class LazyHDF5Dataset(AbstractHDF5Dataset):
         lock.release()
 
         # finally return the H5
-        return h5py.File(file_path, 'r')
+        return h5py.File(file_path, 'r', libver='latest')
 
     @staticmethod
     def fetch_datasets(input_file_h5, internal_paths):
